@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# WSL adapter for controlling Windows-host Oracle VirtualBox from Linux tooling.
+# Put this directory first in PATH so tools that call `VBoxManage` transparently
+# invoke the Windows VBoxManage.exe while keeping WSL-friendly command lines.
+
+DEFAULT_EXE="/mnt/c/Program Files/Oracle/VirtualBox/VBoxManage.exe"
+VBOX_EXE="${RAICCOON_VBOXMANAGE_EXE:-$DEFAULT_EXE}"
+
+if [[ "${1:-}" == "--adapter-self-test" ]]; then
+  if [[ ! -x "$VBOX_EXE" ]]; then
+    printf 'ERROR: VBoxManage.exe not found or not executable: %s\n' "$VBOX_EXE" >&2
+    printf 'Set RAICCOON_VBOXMANAGE_EXE to the Windows VirtualBox path, for example:\n' >&2
+    printf '  export RAICCOON_VBOXMANAGE_EXE="/mnt/c/Program Files/Oracle/VirtualBox/VBoxManage.exe"\n' >&2
+    exit 1
+  fi
+  printf 'WSL VBoxManage adapter OK: %s\n' "$VBOX_EXE"
+  "$VBOX_EXE" --version
+  exit 0
+fi
+
+if [[ ! -x "$VBOX_EXE" ]]; then
+  printf 'ERROR: VBoxManage.exe not found or not executable: %s\n' "$VBOX_EXE" >&2
+  printf 'Install Oracle VirtualBox on Windows or set RAICCOON_VBOXMANAGE_EXE.\n' >&2
+  exit 127
+fi
+
+translate_path() {
+  local value="$1"
+  if [[ "${RAICCOON_WSL_VBOX_NO_PATH_TRANSLATE:-}" == "1" ]]; then
+    printf '%s' "$value"
+    return 0
+  fi
+  case "$value" in
+    ""|none|emptydrive|additions|host:*) printf '%s' "$value"; return 0 ;;
+    [A-Za-z]:\\*) printf '%s' "$value"; return 0 ;;
+  esac
+  if [[ "$value" == /* ]] && command -v wslpath >/dev/null 2>&1; then
+    # Translate paths that exist or whose parent exists. This covers ISO, VDI,
+    # shared-folder host paths, screenshots, and generated script files without
+    # rewriting guest paths such as /bin/sh after a guestcontrol `--` boundary.
+    local parent
+    parent="$(dirname "$value")"
+    if [[ -e "$value" || -d "$parent" ]]; then
+      wslpath -w "$value"
+      return 0
+    fi
+  fi
+  printf '%s' "$value"
+}
+
+# Only translate arguments that VirtualBox treats as host filesystem paths.
+# Do not globally translate absolute paths because guestcontrol commands may
+# contain Linux guest paths after `--exe` or after the guest argv separator.
+path_options=(
+  --medium
+  --hostpath
+  --filename
+  --basefolder
+  --screenshotpng
+  --recordingfile
+  --settingspwfile
+)
+
+is_path_option() {
+  local opt="$1"
+  local p
+  for p in "${path_options[@]}"; do
+    [[ "$opt" == "$p" ]] && return 0
+  done
+  return 1
+}
+
+args=()
+translate_next=0
+for arg in "$@"; do
+  if [[ "$translate_next" == "1" ]]; then
+    args+=("$(translate_path "$arg")")
+    translate_next=0
+    continue
+  fi
+
+  if is_path_option "$arg"; then
+    args+=("$arg")
+    translate_next=1
+    continue
+  fi
+
+  case "$arg" in
+    --medium=*|--hostpath=*|--filename=*|--basefolder=*|--screenshotpng=*|--recordingfile=*|--settingspwfile=*)
+      opt="${arg%%=*}"
+      val="${arg#*=}"
+      args+=("$opt=$(translate_path "$val")")
+      ;;
+    *)
+      args+=("$arg")
+      ;;
+  esac
+done
+
+if [[ "${RAICCOON_WSL_VBOX_DEBUG:-}" == "1" ]]; then
+  printf 'WSL VBoxManage adapter exec:' >&2
+  printf ' %q' "$VBOX_EXE" "${args[@]}" >&2
+  printf '\n' >&2
+fi
+
+if [[ "${RAICCOON_WSL_VBOX_DRY_RUN:-}" == "1" ]]; then
+  printf '%q' "$VBOX_EXE"
+  printf ' %q' "${args[@]}"
+  printf '\n'
+  exit 0
+fi
+
+exec "$VBOX_EXE" "${args[@]}"

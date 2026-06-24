@@ -10,4 +10,5 @@
 - [ ] If using Hermes, verify CLI path and timeout.
 - [ ] If using OpenCTI, create local tokens and test one upload.
 - [ ] If using sandbox, verify host-only VirtualBox topology with benign test files first.
+- [ ] If using WSL2 for sandbox control, enable `components/local-sandbox/adapters/wsl/`, verify `VBoxManage list vms`, and validate packet capture before real samples.
 - [ ] Add organization branding only after the unbranded skeleton is healthy.

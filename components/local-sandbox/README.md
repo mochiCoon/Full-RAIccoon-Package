@@ -46,6 +46,20 @@ pip install -r requirements.txt
 python3 -m raiccoon_sandbox.local_vbox_detonate --help
 ```
 
+### WSL2 adapter for Windows-host VirtualBox
+
+If analysts run the tooling in WSL2 but keep Oracle VirtualBox installed on Windows, use the adapter in `adapters/wsl/`. It exposes a WSL-side `VBoxManage` shim that invokes Windows `VBoxManage.exe` and translates host-path arguments used by storage, shared-folder, screenshot, and related VirtualBox commands.
+
+```bash
+cd components/local-sandbox
+chmod +x adapters/wsl/VBoxManage adapters/wsl/setup-wsl-vboxmanage.sh
+adapters/wsl/setup-wsl-vboxmanage.sh
+export PATH="$PWD/adapters/wsl:$PATH"
+VBoxManage list vms
+```
+
+Full setup and limitations are documented in `docs/wsl-windows-virtualbox.md`.
+
 Run a password-protected sample archive:
 
 ```bash

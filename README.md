@@ -27,7 +27,7 @@ docs/                     Architecture and rollout notes
 ## Quick start: local portal
 
 Prerequisites:
-- Linux or macOS
+- Linux, macOS, or WSL2 for the portal
 - Python 3.10+
 - `uv` recommended, or `python3 -m venv`
 - optional: Hermes CLI if you want AI-backed workflow dispatch
@@ -78,6 +78,29 @@ python3 -m raiccoon_sandbox.local_vbox_detonate --help
 ```
 
 Never bridge malware VMs to production networks. Use host-only networking and handle all artifacts as potentially malicious.
+
+### WSL2 note
+
+The portal and skills work normally in WSL2. The malware sandbox can use Windows-host Oracle VirtualBox through the WSL adapter in:
+
+```text
+components/local-sandbox/adapters/wsl/
+```
+
+Start with:
+
+```bash
+cd components/local-sandbox
+adapters/wsl/setup-wsl-vboxmanage.sh
+```
+
+Then read:
+
+```text
+components/local-sandbox/docs/wsl-windows-virtualbox.md
+```
+
+WSL mode is best treated as an advanced bridge. Validate host-only networking, DNS simulation, packet capture, and Guest Additions before using it for real samples. A dedicated Linux lab host remains the recommended high-assurance malware-analysis deployment.
 
 ## Optional OpenCTI
 

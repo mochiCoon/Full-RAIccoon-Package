@@ -2,7 +2,7 @@ vm:
   name: win-malware-lab
   snapshot: clean-guestadditions-sysmon
   guest_user: analyst
-  guest_password: MalwareLab!2026
+  guest_password: CHANGE_ME_GUEST_PASSWORD
 
 network:
   interface: vboxnet0
@@ -19,7 +19,7 @@ run:
 analysis:
   vm: remnux
   vm_user: remnux
-  vm_password: malware
+  vm_password: CHANGE_ME_ANALYSIS_VM_PASSWORD
   share_host: /opt/raiccoon/vm-shares/remnux-transfer
   share_guest: /media/sf_remnux_transfer
   service_ip: 192.168.56.1
