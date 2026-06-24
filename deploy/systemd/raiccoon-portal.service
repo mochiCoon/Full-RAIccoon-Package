@@ -1,0 +1,15 @@
+[Unit]
+Description=RAIccoon Operations Portal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/raiccoon/Full-RAIccoon-Package
+EnvironmentFile=/opt/raiccoon/Full-RAIccoon-Package/.env
+ExecStart=/opt/raiccoon/Full-RAIccoon-Package/scripts/run-portal.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

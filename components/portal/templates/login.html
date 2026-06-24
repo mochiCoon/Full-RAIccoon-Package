@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123d63">
+  <meta name="msapplication-config" content="/static/branding/browserconfig.xml?v=branding-20260618-1">
+  <title>{{ title }}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/branding/your-organization-emblem.svg?v=branding-20260617-1">
+  <link rel="shortcut icon" href="/static/branding/favicon.ico?v=branding-20260617-1">
+  <link rel="apple-touch-icon" href="/static/branding/apple-touch-icon.png?v=branding-20260617-1">
+  <link rel="manifest" href="/static/branding/site.webmanifest?v=branding-20260618-1">
+  <link rel="stylesheet" href="/static/style.css?v=branding-20260617-1">
+</head>
+<body class="login-body">
+  <main class="login-shell">
+    <section class="login-panel cyber-panel">
+      <img class="login-brand-logo" src="/static/branding/your-organization-logo-portal-reverse.svg?v=branding-20260617-1" alt="Your Organization logo">
+      <div class="eyebrow">Your Organization</div>
+      <h1>RAIccoon Operations Portal</h1>
+      <p class="lede">Secure analyst workspace for threat intelligence, AI operations, detection engineering, and publication tracking.</p>
+      <ul class="login-points">
+        <li>Hermes-powered search and file-assisted analysis</li>
+        <li>AI cost visibility with import and sync workflows</li>
+        <li>Publication pipeline for briefs, reports, and client deliverables</li>
+      </ul>
+    </section>
+
+    <section class="login-panel form-panel">
+      <div class="eyebrow">Authorized access only</div>
+      <h2>Sign in</h2>
+      {% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+      <form method="post" action="/login" class="stacked-form">
+        <label>Username<input type="text" name="username" autocomplete="username" required></label>
+        <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+        <button type="submit">Enter portal</button>
+      </form>
+      <p class="muted tiny">Default bootstrap credentials come from environment variables or the first-run fallback account. Rotate immediately before wider internal use.</p>
+    </section>
+  </main>
+</body>
+</html>

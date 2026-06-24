@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123d63">
+  <meta name="msapplication-config" content="/static/branding/browserconfig.xml?v=branding-20260618-1">
+  <title>{{ title }}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/branding/your-organization-emblem.svg?v=branding-20260617-1">
+  <link rel="shortcut icon" href="/static/branding/favicon.ico?v=branding-20260617-1">
+  <link rel="apple-touch-icon" href="/static/branding/apple-touch-icon.png?v=branding-20260617-1">
+  <link rel="manifest" href="/static/branding/site.webmanifest?v=branding-20260618-1">
+  <link rel="stylesheet" href="/static/style.css?v=branding-20260617-1">
+</head>
+<body class="login-body">
+  <main class="login-shell">
+    <section class="login-panel cyber-panel">
+      <img class="login-brand-logo" src="/static/branding/your-organization-logo-portal-reverse.svg?v=branding-20260617-1" alt="Your Organization logo">
+      <div class="eyebrow">Your Organization</div>
+      <h1>Authenticator verification</h1>
+      <p class="lede">Enter the 6-digit code from your authenticator app or a one-time recovery code to complete sign-in for @{{ pending_user.username }}.</p>
+      <ul class="login-points">
+        <li>Supported apps: Google Authenticator, 1Password, Authy, and other TOTP-compatible apps</li>
+        <li>Codes rotate every 30 seconds</li>
+        <li>Backup recovery codes work once each and can replace the authenticator code when needed</li>
+      </ul>
+    </section>
+
+    <section class="login-panel form-panel">
+      <div class="eyebrow">Second factor required</div>
+      <h2>Verify code</h2>
+      {% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+      <form method="post" action="/mfa/challenge" class="stacked-form">
+        <label>Authenticator or recovery code<input type="text" name="code" inputmode="text" autocomplete="one-time-code" pattern="[0-9A-Za-z -]*" maxlength="16" required autofocus></label>
+        <button type="submit">Complete sign-in</button>
+      </form>
+      <p class="muted tiny">If you no longer have your authenticator device, use a saved recovery code or ask an admin to reset MFA for your account.</p>
+    </section>
+  </main>
+</body>
+</html>

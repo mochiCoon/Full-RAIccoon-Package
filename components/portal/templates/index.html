@@ -1,0 +1,1796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123d63">
+  <meta name="msapplication-config" content="/static/branding/browserconfig.xml?v=branding-20260618-1">
+  <title>{{ title }}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/branding/your-organization-emblem.svg?v=branding-20260617-1">
+  <link rel="shortcut icon" href="/static/branding/favicon.ico?v=branding-20260617-1">
+  <link rel="apple-touch-icon" href="/static/branding/apple-touch-icon.png?v=branding-20260617-1">
+  <link rel="manifest" href="/static/branding/site.webmanifest?v=branding-20260618-1">
+  <link rel="stylesheet" href="/static/style.css?v=branding-20260623-table-heads-1">
+</head>
+<body class="portal-quiet">
+  <header class="topbar compact-topbar">
+    <div class="portal-brand-shell">
+      <img class="portal-brand-logo" src="/static/branding/your-organization-logo-portal-reverse.svg?v=branding-20260617-1" alt="Your Organization logo">
+      <div class="portal-brand-copy">
+        <div class="eyebrow">Your Organization</div>
+        <h1>{{ page_title }}</h1>
+        <p class="lede small">{{ subtitle }}</p>
+      </div>
+    </div>
+    <div class="topbar-meta compact-session-bar">
+      <div class="meta-block session-chip">
+        <span class="meta-label">Operator</span>
+        <strong>{{ current_user.display_name or current_user.username }}</strong>
+      </div>
+      {% if notification_unread_count %}
+      <a class="meta-block session-chip" href="/tasks">
+        <span class="meta-label">Needs review</span>
+        <strong>{{ notification_unread_count }} unread</strong>
+      </a>
+      {% endif %}
+      <form method="post" action="/logout">
+        <button type="submit" class="secondary small-button">Sign out</button>
+      </form>
+    </div>
+  </header>
+
+  <nav class="tabs simple-nav" aria-label="Primary portal navigation">
+    {% set primary_nav = ['dashboard', 'tasks', 'research', 'chat', 'documents'] %}
+    {% for item in nav_items if item.key in primary_nav %}
+    <a href="{{ item.path }}" class="{% if item.key == active_page %}active{% endif %}">{{ item.label }}</a>
+    {% endfor %}
+    <details class="more-nav">
+      <summary>More</summary>
+      <div class="more-nav-menu">
+        {% for item in nav_items if item.key not in primary_nav %}
+        <a href="{{ item.path }}" class="{% if item.key == active_page %}active{% endif %}">{{ item.label }}</a>
+        {% endfor %}
+      </div>
+    </details>
+  </nav>
+
+  {% if message %}<div class="banner success">{{ message }}</div>{% endif %}
+  {% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+  {% if notifications %}
+  <section class="notification-tray">
+    <div class="notification-tray-heading">
+      <div>
+        <div class="eyebrow small-eyebrow">Unread notifications</div>
+        <h3>Review and publish updates</h3>
+      </div>
+      <span class="pill">{{ notification_unread_count }} unread</span>
+    </div>
+    <div class="notification-list">
+      {% for notification in notifications %}
+      <article class="notification-card">
+        <div>
+          <div class="table-primary">{{ notification.title }}</div>
+          <div class="table-secondary">{{ notification.body }}</div>
+          <div class="tiny top-gap">{{ notification.created_at|pretty_dt }}</div>
+        </div>
+        <div class="button-row notification-actions">
+          {% if notification.task_id %}<a class="secondary pill-link" href="/tasks#task-{{ notification.task_id }}">Open task</a>{% endif %}
+          <form method="post" action="/notifications/{{ notification.id }}/read">
+            <input type="hidden" name="next" value="/{{ active_page }}">
+            <button type="submit" class="secondary small-button">Mark read</button>
+          </form>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <main class="layout">
+    {% if active_page == 'dashboard' %}
+    <section class="panel cyber-panel home-workbench">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">Today</div>
+          <h2>What needs doing?</h2>
+          <p class="lede small">A short path into the work: continue active tasks, create research, or review final deliverables.</p>
+        </div>
+      </div>
+
+      <div class="cards three-up seamless-actions">
+        <a class="card action-card primary-action" href="/tasks">
+          <span class="label">Continue</span>
+          <strong>{{ summary.open_tasks }} active tasks</strong>
+          <small>{{ task_board_payload.analytics.blocked_count }} blocked · {{ task_board_payload.analytics.review_count }} in review</small>
+        </a>
+        <a class="card action-card" href="/research">
+          <span class="label">Start</span>
+          <strong>New research</strong>
+          <small>Create a report/research task without hunting through admin controls.</small>
+        </a>
+        <a class="card action-card" href="/documents">
+          <span class="label">Deliver</span>
+          <strong>{{ summary.document_count }} final PDFs</strong>
+          <small>Open final deliverables only; drafts and source bundles stay out of the way.</small>
+        </a>
+      </div>
+
+      <div class="grid two-col gap-lg top-gap dashboard-focus-grid">
+        <div class="card">
+          <div class="section-heading compact-heading">
+            <div>
+              <div class="eyebrow small-eyebrow">Attention</div>
+              <h3>Priority queue</h3>
+            </div>
+            <a class="secondary pill-link" href="/tasks">Open board</a>
+          </div>
+          <div class="workflow-focus-list compact-home-focus">
+            {% for task in workflow_context.focus_queue[:6] %}
+            <a class="workflow-focus-item" href="{{ task.href }}">
+              <span class="workflow-focus-id">#{{ task.id }}</span>
+              <span class="workflow-focus-body">
+                <strong>{{ task.title }}</strong>
+                <small>{{ task.assignee or 'unassigned' }}{% if task.client %} · {{ task.client }}{% endif %}{% if task.workflow %} · {{ task.workflow }}{% endif %}</small>
+              </span>
+              <span class="workflow-focus-badge">{{ task.status_label }}{% if task.is_blocked %} · blocked{% elif task.qa_state == 'fail' %} · QA fail{% elif task.is_overdue %} · overdue{% elif task.is_stale %} · stale{% endif %}</span>
+            </a>
+            {% else %}
+            <div class="workflow-focus-item empty-focus"><span class="workflow-focus-id">OK</span><span class="workflow-focus-body"><strong>No urgent work needs attention.</strong><small>Use Start to create a research task when ready.</small></span></div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="card quiet-status-card">
+          <div class="section-heading compact-heading">
+            <div>
+              <div class="eyebrow small-eyebrow">System signal</div>
+              <h3>Only the useful numbers</h3>
+            </div>
+          </div>
+          <div class="cards two-up compact-stat-grid">
+            <article class="stat-card mini-stat"><span class="label">Stale / overdue</span><strong>{{ task_board_payload.analytics.stale_count }} / {{ task_board_payload.analytics.overdue_count }}</strong><small>work at risk</small></article>
+            <article class="stat-card mini-stat"><span class="label">QA failing</span><strong>{{ task_board_payload.analytics.qa_failing_count }}</strong><small>needs revision</small></article>
+            <article class="stat-card mini-stat"><span class="label">OpenCTI gaps</span><strong>{{ intel_ops.opencti.missing_opencti_uploads|default(0) }}</strong><small>ready reports not linked</small></article>
+            <article class="stat-card mini-stat"><span class="label">Tracked spend</span><strong>${{ '%.2f'|format(summary.total_cost) }}</strong><small>details under More → AI Costs</small></article>
+          </div>
+          {% if intel_ops.daily_brief.recommended_actions %}
+          <div class="top-gap">
+            <h4>Suggested next action</h4>
+            <p class="muted">{{ intel_ops.daily_brief.recommended_actions[0] }}</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      {% set landscape = intel_ops.opencti.landscape if intel_ops and intel_ops.opencti and intel_ops.opencti.landscape is defined else None %}
+      <div class="card top-gap threat-landscape-card">
+        <div class="section-heading compact-heading">
+          <div>
+            <div class="eyebrow small-eyebrow">OpenCTI pressure map</div>
+            <h3>Most active threats, victims, malware, and vulnerabilities</h3>
+            <p class="muted small">Derived from the most recent {{ landscape.window_days if landscape else 90 }} days of OpenCTI reports{% if landscape and landscape.report_count %} across {{ landscape.report_count }} reports{% endif %}.</p>
+          </div>
+          {% if landscape and landscape.latest_report_published %}
+          <span class="meta-label">Latest report {{ landscape.latest_report_published|pretty_dt }}</span>
+          {% endif %}
+        </div>
+        {% if landscape and (landscape.threats or landscape.victims or landscape.malware or landscape.vulnerabilities or landscape.countries) %}
+        <div class="grid three-up gap-lg threat-landscape-grid">
+          <article class="card landscape-list-card">
+            <span class="label">Most active threats</span>
+            <ul class="simple-list compact-simple-list top-gap">
+              {% for item in landscape.threats[:6] %}
+              <li>
+                <span>
+                  <strong>{{ item.name }}</strong>
+                  <small>{{ item.entity_types|join(', ') }}</small>
+                </span>
+                <strong>{{ item.count }}</strong>
+              </li>
+              {% else %}
+              <li><span class="muted">No threat entities were linked in the current OpenCTI window.</span></li>
+              {% endfor %}
+            </ul>
+          </article>
+          <article class="card landscape-list-card">
+            <span class="label">Most targeted victims</span>
+            <ul class="simple-list compact-simple-list top-gap">
+              {% for item in landscape.victims[:6] %}
+              <li>
+                <span>
+                  <strong>{{ item.name }}</strong>
+                  <small>{{ item.entity_types|join(', ') }}</small>
+                </span>
+                <strong>{{ item.count }}</strong>
+              </li>
+              {% else %}
+              <li><span class="muted">No victim sectors or organizations were linked in the current OpenCTI window.</span></li>
+              {% endfor %}
+            </ul>
+          </article>
+          <article class="card landscape-list-card">
+            <span class="label">Most active malware</span>
+            <ul class="simple-list compact-simple-list top-gap">
+              {% for item in landscape.malware[:6] %}
+              <li>
+                <span>
+                  <strong>{{ item.name }}</strong>
+                  <small>{{ item.entity_types|join(', ') }}</small>
+                </span>
+                <strong>{{ item.count }}</strong>
+              </li>
+              {% else %}
+              <li><span class="muted">No malware families or tools were linked in the current OpenCTI window.</span></li>
+              {% endfor %}
+            </ul>
+          </article>
+          <article class="card landscape-list-card">
+            <span class="label">Most active vulnerabilities</span>
+            <ul class="simple-list compact-simple-list top-gap">
+              {% for item in landscape.vulnerabilities[:6] %}
+              <li>
+                <span>
+                  <strong>{{ item.name }}</strong>
+                  <small>{{ item.entity_types|join(', ') }}</small>
+                </span>
+                <strong>{{ item.count }}</strong>
+              </li>
+              {% else %}
+              <li><span class="muted">No vulnerabilities were linked in the current OpenCTI window.</span></li>
+              {% endfor %}
+            </ul>
+          </article>
+          <article class="card landscape-map-card">
+            <span class="label">Target countries map</span>
+            <div class="landscape-map top-gap">
+              <svg viewBox="0 0 1000 520" role="img" aria-label="Target countries bubble map">
+                <rect x="0" y="0" width="1000" height="520" rx="22" class="map-shell"></rect>
+                <image href="/static/blank-world-equirectangular.svg" x="0" y="0" width="1000" height="520" preserveAspectRatio="none" class="map-base"></image>
+                {% for point in landscape.country_map_points %}
+                <g class="map-point-group">
+                  <title>{{ point.name }} — {{ point.count }} linked reports</title>
+                  <circle class="map-point-glow" cx="{{ point.x }}" cy="{{ point.y }}" r="{{ point.radius + 5 }}"></circle>
+                  <circle class="map-point" cx="{{ point.x }}" cy="{{ point.y }}" r="{{ point.radius }}"></circle>
+                </g>
+                {% endfor %}
+              </svg>
+            </div>
+            <ul class="simple-list compact-simple-list top-gap">
+              {% for item in landscape.countries[:6] %}
+              <li>
+                <span><strong>{{ item.name }}</strong></span>
+                <strong>{{ item.count }}</strong>
+              </li>
+              {% else %}
+              <li><span class="muted">No country entities with map coordinates were linked in the current OpenCTI window.</span></li>
+              {% endfor %}
+            </ul>
+          </article>
+          <article class="card landscape-list-card">
+            <span class="label">Recent OpenCTI reports sampled</span>
+            <ul class="simple-list compact-simple-list top-gap">
+              {% for report in landscape.sample_reports[:6] %}
+              <li>
+                <span>
+                  <strong>{{ report.name }}</strong>
+                  <small>{% if report.report_types %}{{ report.report_types|join(', ') }}{% else %}report{% endif %}</small>
+                </span>
+                <small>{{ report.published|pretty_dt if report.published else 'n/a' }}</small>
+              </li>
+              {% endfor %}
+            </ul>
+            <p class="muted tiny top-gap">Source: {{ landscape.source|default('live') }}{% if landscape.cache_age_seconds is defined %} · cache age {{ landscape.cache_age_seconds|round(0, 'floor') }}s{% endif %}</p>
+            {% if landscape.warning %}<p class="muted tiny">{{ landscape.warning }}</p>{% endif %}
+            {% if landscape.error %}<p class="muted tiny">{{ landscape.error }}</p>{% endif %}
+          </article>
+        </div>
+        {% else %}
+        <p class="muted">OpenCTI activity data is not available yet. Once the portal can query OpenCTI, this panel will surface the top recent threats, victims, malware, vulnerabilities, and target countries.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    {% elif active_page == 'security' %}
+    <section class="panel cyber-panel">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">Identity hardening</div>
+          <h2>Portal security</h2>
+          <p class="muted small">Manage authenticator-based MFA, backup recovery codes, and admin MFA requirements.</p>
+        </div>
+      </div>
+
+      <div class="grid two-col gap-lg">
+        <div class="card">
+          <h3>Authenticator MFA status</h3>
+          {% if security_profile and security_profile.mfa_enabled %}
+          <p><strong>Enabled</strong></p>
+          <p class="muted small">Configured for @{{ security_profile.username }}{% if security_profile.mfa_created_at %} on {{ security_profile.mfa_created_at|pretty_dt }}{% endif %}.</p>
+          <p class="muted small">Recovery codes remaining: {{ security_profile.recovery_code_count if security_profile.recovery_code_count is defined else 0 }}.</p>
+          {% else %}
+          <p><strong>Disabled</strong></p>
+          <p class="muted small">Enable TOTP codes for Google Authenticator, 1Password, Authy, or any compatible authenticator app.</p>
+          <form method="post" action="/security/mfa/start" class="top-gap">
+            <button type="submit">Start MFA setup</button>
+          </form>
+          {% endif %}
+        </div>
+
+        <div class="card">
+          <h3>How it works</h3>
+          <ol class="simple-list numbered-list">
+            <li>Start setup to generate a secret.</li>
+            <li>Add the secret or otpauth URI to your authenticator app.</li>
+            <li>Enter the 6-digit code to enable MFA.</li>
+            <li>Future logins will require both password and authenticator code.</li>
+            <li>One-time backup recovery codes can be used if your authenticator is unavailable.</li>
+          </ol>
+          {% if current_user.mfa_setup_required %}
+          <p class="banner error">An administrator has required MFA for this account. Finish enrollment before using the rest of the portal.</p>
+          {% else %}
+          <p class="muted tiny">Store your recovery codes offline. Each code can only be used once.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if mfa_setup_secret and security_profile and not security_profile.mfa_enabled %}
+      <div class="card top-gap">
+        <h3>Pending MFA enrollment</h3>
+        <p>Add this secret to your authenticator app:</p>
+        <pre class="code-block">{{ mfa_setup_secret }}</pre>
+        <p class="muted small">If your authenticator supports manual URI import, use this otpauth URI:</p>
+        <pre class="code-block">{{ mfa_setup_uri }}</pre>
+        <form method="post" action="/security/mfa/confirm" class="stacked-form top-gap">
+          <label>Authenticator code<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*" maxlength="8" required></label>
+          <button type="submit">Enable MFA</button>
+        </form>
+      </div>
+      {% endif %}
+
+      {% if pending_mfa_recovery_codes %}
+      <div class="card top-gap">
+        <h3>Backup recovery codes</h3>
+        <p>Store these one-time recovery codes somewhere safe. They are shown in full here for your current session only.</p>
+        <pre class="code-block">{% for code in pending_mfa_recovery_codes %}{{ code }}
+{% endfor %}</pre>
+      </div>
+      {% endif %}
+
+      {% if security_profile and security_profile.mfa_enabled %}
+      <div class="grid two-col gap-lg top-gap">
+        <div class="card">
+          <h3>Recovery codes</h3>
+          <p class="muted small">Generated{% if security_profile.mfa_recovery_generated_at %} on {{ security_profile.mfa_recovery_generated_at|pretty_dt }}{% endif %}. Remaining stored codes: {{ security_profile.recovery_code_count if security_profile.recovery_code_count is defined else 0 }}.</p>
+          <p class="muted small">Regenerating recovery codes invalidates every previous code immediately.</p>
+          <form method="post" action="/security/mfa/recovery/regenerate" class="stacked-form top-gap">
+            <label>Current password<input type="password" name="password" autocomplete="current-password" required></label>
+            <label>Authenticator code<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9A-Za-z -]*" maxlength="16" required></label>
+            <button type="submit">Regenerate recovery codes</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Disable MFA</h3>
+          <p class="muted small">This requires your current password and a valid authenticator code.</p>
+          <form method="post" action="/security/mfa/disable" class="stacked-form top-gap">
+            <label>Current password<input type="password" name="password" autocomplete="current-password" required></label>
+            <label>Authenticator code<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*" maxlength="8" required></label>
+            <button type="submit" class="secondary">Disable MFA</button>
+          </form>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if current_user.role == 'admin' %}
+      <div class="card top-gap">
+        <h3>Admin MFA policy</h3>
+        <p class="muted small">Require individual portal accounts to enroll in MFA before using the rest of the portal.</p>
+        <div class="mini-table top-gap">
+          {% for row in security_users %}
+          <div class="mini-row">
+            <div>
+              <strong>@{{ row.username }}</strong>
+              <small>{{ row.display_name }} · {{ row.role }} · {% if row.mfa_enabled %}MFA enabled{% else %}MFA disabled{% endif %} · {{ row.recovery_code_count }} recovery codes stored</small>
+            </div>
+            <form method="post" action="/security/admin/mfa-required" class="inline-form">
+              <input type="hidden" name="user_id" value="{{ row.id }}">
+              {% if row.mfa_required %}
+              <input type="hidden" name="required" value="0">
+              <button type="submit" class="secondary">Clear requirement</button>
+              {% else %}
+              <input type="hidden" name="required" value="1">
+              <button type="submit">Require MFA</button>
+              {% endif %}
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </section>
+
+    {% elif active_page == 'chat' %}
+    <section class="panel cyber-panel chat-panel">
+      <div class="chat-shell">
+        <aside class="chat-sidebar card">
+          <div class="eyebrow">AI teammate</div>
+          <h2>Hermes Chat</h2>
+          <p class="muted small">Desktop-style command chat for quick strategy, drafting, triage, and execution notes.</p>
+          <div class="chat-session-card active">
+            <div class="table-primary">Your Organization workspace</div>
+            <div class="table-secondary">{{ chat_messages|length }} message{% if chat_messages|length != 1 %}s{% endif %} in portal history</div>
+          </div>
+          <div class="chat-sidebar-actions">
+            <a class="secondary pill-link" href="/chat">Refresh</a>
+            <form method="post" action="/chat/clear">
+              <button type="submit" class="secondary small-button">Clear chat</button>
+            </form>
+          </div>
+          <div class="chat-hint">
+            <span class="meta-label">Mode</span>
+            <strong>Verbose analyst mode</strong>
+            <small>Claude/Codex-inspired local transcript with fuller reasoning, trade-offs, examples, and next steps by default.</small>
+          </div>
+        </aside>
+
+        <section class="chat-main card">
+          <header class="chat-header">
+            <div>
+              <div class="eyebrow small-eyebrow">Live console</div>
+              <h2>Chat with Hermes</h2>
+              <p class="muted tiny">Ask for research support, planning, reports, threat-hunt ideas, detection logic, or portal workflow help.</p>
+            </div>
+            <span class="pill live-badge">{% if chat_pending %}Hermes is thinking…{% else %}Hermes CLI backed{% endif %}</span>
+          </header>
+
+          <div class="chat-transcript" id="chat-transcript">
+            {% if chat_messages %}
+              {% for row in chat_messages %}
+              <article class="chat-message {{ row.role }}">
+                <div class="chat-avatar">{% if row.role == 'assistant' %}H{% else %}{{ (row.requested_by or current_user.username)[:1]|upper }}{% endif %}</div>
+                <div class="chat-bubble">
+                  <div class="chat-meta">
+                    <strong>{% if row.role == 'assistant' %}Hermes{% else %}{{ row.requested_by or current_user.username }}{% endif %}</strong>
+                    <span>{{ row.created_at|pretty_dt }}{% if row.duration_seconds %} · {{ row.duration_seconds }}s{% endif %}</span>
+                  </div>
+                  <div class="chat-content">{{ row.content|nl2br|safe }}</div>
+                </div>
+              </article>
+              {% endfor %}
+            {% endif %}
+            {% if chat_pending %}
+              <article class="chat-message assistant pending">
+                <div class="chat-avatar">H</div>
+                <div class="chat-bubble">
+                  <div class="chat-meta"><strong>Hermes</strong><span>working in background</span></div>
+                  <div class="chat-content"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span> Thinking through this now. The page will refresh automatically.</div>
+                </div>
+              </article>
+            {% endif %}
+            {% if not chat_messages and not chat_pending %}
+              <div class="chat-empty">
+                <div class="eyebrow">Ready</div>
+                <h3>Start a conversation with Hermes.</h3>
+                <p class="muted">This tab is built to feel like a local AI desktop app, but inside the Your Organization portal.</p>
+              </div>
+            {% endif %}
+          </div>
+
+          <form method="post" action="/chat" class="chat-composer">
+            <label class="sr-only" for="message_text">Message Hermes</label>
+            <textarea id="message_text" name="message_text" rows="4" placeholder="Ask Hermes to draft, research, plan, review detections, summarize incidents, or think through next steps..." required></textarea>
+            <div class="chat-composer-footer">
+              <span class="muted tiny">Enter a prompt and Hermes will answer through the local CLI integration.</span>
+              <button type="submit">Send message</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </section>
+
+    {% elif active_page == 'research' %}
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">Research workspace</div>
+          <h2>Create queued research tasks</h2>
+          <p class="lede small">Submit a research request, auto-create an In Progress Kanban card, and let Hermes generate a publish-ready Your Organization PDF into the document staging folder.</p>
+        </div>
+      </div>
+
+      <form method="post" action="/searches" enctype="multipart/form-data" class="stacked-form">
+        <div class="form-grid two-columns">
+          <label>
+            Workflow
+            <select name="workflow">
+              {% for workflow in workflow_options %}
+              <option value="{{ workflow.key }}" {% if workflow.key == selected_workflow %}selected{% endif %}>{{ workflow.label }}{% if workflow.portal_default %} · raiccoon{% endif %}</option>
+              {% endfor %}
+            </select>
+            <span class="tiny">Threat intel, purple team exercise, detection engineering, threat hunting, IOC enrichment, IR triage, and malware analysis auto-load raiccoon. Malware analysis also runs the local RAIccoon Local Sandbox sandbox before the task is queued.</span>
+          </label>
+          <label>
+            Report title
+            <input type="text" name="title" placeholder="Qilin ransomware infrastructure report">
+            <span class="tiny">Optional. If left blank, the portal derives a title from your prompt.</span>
+          </label>
+          <label>
+            Final document category
+            <select name="document_category" required>
+              <option value="">Select category…</option>
+              {% for category in report_category_options %}
+              <option value="{{ category }}">{{ category }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            Priority
+            <select name="priority">
+              <option value="2">High</option>
+              <option value="1" selected>Normal</option>
+              <option value="0">Low</option>
+            </select>
+          </label>
+          <label>
+            Assignee
+            <input type="text" name="assignee" value="{{ current_user.username }}" placeholder="analyst name or handle">
+          </label>
+          <label>
+            Hermes profile
+            <select name="worker_profile">
+              {% for profile in profile_options %}
+              <option value="{{ profile }}" {% if profile == portal_default_worker_profile %}selected{% endif %}>{{ profile }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <label>
+          Research prompt
+          <textarea name="query" rows="6" placeholder="Summarize a campaign, compare malware notes, review indicators, detonate an uploaded sample, draft an executive summary, build a hunt hypothesis...">{{ search_query }}</textarea>
+        </label>
+        <label>
+          Evidence files
+          <input type="file" name="files" multiple>
+        </label>
+        <button type="submit">Create Research Task</button>
+      </form>
+
+      <div class="cards two-up compact-cards top-gap">
+        {% for workflow in workflow_options %}
+        <article class="card workflow-card">
+          <div class="table-primary">{{ workflow.label }}</div>
+          <div class="table-secondary">{{ workflow.description }}</div>
+        </article>
+        {% endfor %}
+      </div>
+
+      {% if search_result %}
+      <article class="result">
+        <div class="eyebrow">Latest queue update</div>
+        <div class="response">{{ search_result|nl2br|safe }}</div>
+      </article>
+      {% endif %}
+
+      <div class="table-wrap top-gap">
+        <table>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Analyst</th>
+              <th>Workflow</th>
+              <th>Request</th>
+              <th>Files</th>
+              <th>Prep</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in searches %}
+            <tr>
+              <td>{{ row.created_at|pretty_dt }}</td>
+              <td>{{ row.requested_by or '—' }}</td>
+              <td><div class="pill workflow-pill">{{ row.workflow or 'general' }}</div></td>
+              <td>
+                <div class="table-primary">{{ row.query }}</div>
+                <div class="table-secondary">{{ row.response[:160] }}{% if row.response|length > 160 %}…{% endif %}</div>
+              </td>
+              <td>
+                {% if row.uploaded_files %}
+                  {% for item in row.uploaded_files.split('|') %}
+                  <div class="pill">{{ item|basename }}</div>
+                  {% endfor %}
+                {% else %}
+                —
+                {% endif %}
+              </td>
+              <td>{{ row.duration_seconds }}s</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="muted">No research operations recorded yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-wrap top-gap">
+        <div class="section-heading nested-heading">
+          <div>
+            <div class="eyebrow small-eyebrow">Research task history</div>
+            <h3>Queued research workflow status</h3>
+          </div>
+          <a class="secondary pill-link" href="/tasks">Open full task board</a>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Created</th>
+              <th>Title</th>
+              <th>Workflow</th>
+              <th>Status</th>
+              <th>Hermes</th>
+              <th>Documents</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for task in research_tasks %}
+            <tr>
+              <td>#{{ task.id }}</td>
+              <td>{{ task.created_at|pretty_dt }}</td>
+              <td>
+                <div class="table-primary">{{ task.title }}</div>
+                <div class="table-secondary">{{ task.document_category or 'Uncategorized' }} · {{ task.requested_by or '—' }}</div>
+              </td>
+              <td><div class="pill workflow-pill">{{ task.research_workflow or 'general' }}</div></td>
+              <td>
+                <div class="pill">{{ task.status_label }}</div>
+              </td>
+              <td>
+                <div class="table-primary">{{ task.kanban_status or '—' }}</div>
+                <div class="table-secondary">{% if task.kanban_task_id %}{{ task.kanban_task_id }}{% else %}not linked{% endif %}</div>
+              </td>
+              <td>
+                <div class="button-stack compact-actions">
+                  <a class="secondary pill-link" href="/tasks#task-{{ task.id }}">Open task</a>
+                  {% if task.review_document_path %}<a class="secondary pill-link" href="/documents/open?category=In%20Review&file={{ task.review_document_name|urlencode }}" target="_blank">Review PDF</a>{% endif %}
+                  {% if task.final_document_path %}<a class="secondary pill-link" href="/documents/open?category={{ task.document_category|urlencode }}&file={{ task.final_document_name|urlencode }}" target="_blank">Final PDF</a>{% endif %}
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="muted">No research tasks queued yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {% elif active_page == 'documents' %}
+    <section class="panel cyber-panel">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">Threat research library</div>
+          <h2>RAIccoon report documents</h2>
+          <p class="lede small">Browse and open Your Organization research deliverables by the categories carried in <code>Reports</code>. The portal only exposes final PDF deliverables; drafts, originals, pre-patch copies, markdown notes, HTML, and TXT exports are hidden.</p>
+        </div>
+        <div class="meta-block">
+          <span class="meta-label">Library root</span>
+          <strong>{{ document_total }} final PDFs</strong>
+          <small>{{ documents_root }}</small>
+        </div>
+      </div>
+
+      <div class="cards three-up compact-cards">
+        {% for category in document_categories %}
+        <article class="card doc-category-card">
+          <div class="table-primary">{{ category.name }}</div>
+          <div class="table-secondary">{{ category.count }} final PDF{% if category.count != 1 %}s{% endif %}</div>
+        </article>
+        {% else %}
+        <article class="card">
+          <div class="table-primary">No documents found</div>
+          <div class="table-secondary">Drop final PDF report files into {{ documents_root }} or restore the RAIccoon portable bundle.</div>
+        </article>
+        {% endfor %}
+      </div>
+
+      <div class="document-library top-gap">
+        {% for category in document_categories %}
+        <section class="card document-category">
+          <div class="document-category-heading">
+            <div>
+              <div class="eyebrow small-eyebrow">Category</div>
+              <h3>{{ category.name }}</h3>
+            </div>
+            <span class="pill">{{ category.count }} final PDF{% if category.count != 1 %}s{% endif %}</span>
+          </div>
+          <div class="table-wrap">
+            <table class="documents-table">
+              <colgroup>
+                <col class="documents-col-name">
+                <col class="documents-col-kind">
+                <col class="documents-col-size">
+                <col class="documents-col-updated">
+                <col class="documents-col-access">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="docs-name-head">Document</th>
+                  <th class="docs-kind-head">Type</th>
+                  <th class="docs-size-head">Size</th>
+                  <th class="docs-updated-head">Updated</th>
+                  <th class="docs-access-head">Access</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for doc in category.documents %}
+                <tr>
+                  <td class="docs-name-cell"><div class="table-primary" title="{{ doc.name }}">{{ doc.name }}</div></td>
+                  <td class="docs-kind-cell"><span class="pill">{{ doc.kind }}</span></td>
+                  <td class="docs-size-cell">{{ doc.size }}</td>
+                  <td class="docs-updated-cell">{{ doc.modified|pretty_dt }}</td>
+                  <td class="docs-access-cell"><a class="secondary pill-link docs-open-link" href="{{ doc.url }}" target="_blank">Open</a></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="muted">No final PDF report files in this category yet.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% elif active_page == 'costs' %}
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">AI operations</div>
+          <h2>Cost tracking and ingestion</h2>
+        </div>
+      </div>
+
+      <div class="grid two-col gap-lg">
+        <div class="card">
+          <h3>Manual cost entry</h3>
+          <form method="post" action="/costs" class="grid-form">
+            <label>Provider<input type="text" name="provider" placeholder="OpenAI, Anthropic, OpenRouter" required></label>
+            <label>Model<input type="text" name="model" placeholder="gpt-5.4, claude-sonnet-4" required></label>
+            <label>Category<input type="text" name="category" placeholder="CTI research, reporting, automation" required></label>
+            <label>Amount (USD)<input type="number" step="0.01" min="0" name="amount_usd" required></label>
+            <label>Period start<input type="date" name="period_start" value="{{ today }}" required></label>
+            <label class="full">Notes<textarea name="notes" rows="3" placeholder="Billing note or engagement reference"></textarea></label>
+            <button type="submit">Add cost entry</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Import / sync</h3>
+          <form method="post" action="/costs/import" enctype="multipart/form-data" class="stacked-form compact-form">
+            <label>CSV import
+              <input type="file" name="csv_file" accept=".csv" required>
+            </label>
+            <button type="submit">Import CSV</button>
+            <p class="muted tiny">Required columns: provider, model, category, amount_usd, period_start. Optional: notes, source.</p>
+          </form>
+
+          <form method="post" action="/costs/sync/openai" class="stacked-form compact-form top-gap">
+            <label>OpenAI cost sync window (days)
+              <input type="number" name="days" min="1" max="365" value="30">
+            </label>
+            <button type="submit">Sync OpenAI cost data</button>
+            <p class="muted tiny">Uses OPENAI_ADMIN_API_KEY or OPENAI_API_KEY if configured.</p>
+          </form>
+        </div>
+      </div>
+
+      <div class="grid two-col gap-lg top-gap">
+        <div class="card">
+          <h3>Recent sync runs</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Provider</th>
+                  <th>Status</th>
+                  <th>Imported</th>
+                  <th>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in sync_runs %}
+                <tr>
+                  <td>{{ row.created_at|pretty_dt }}</td>
+                  <td>{{ row.provider }}</td>
+                  <td>{{ row.status }}</td>
+                  <td>{{ row.imported_count }}</td>
+                  <td>{{ row.detail }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="muted">No sync history yet.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Cost ledger</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Provider</th>
+                  <th>Model</th>
+                  <th>Category</th>
+                  <th>USD</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in costs %}
+                <tr>
+                  <td>{{ row.period_start }}</td>
+                  <td>{{ row.provider }}</td>
+                  <td>{{ row.model }}</td>
+                  <td>{{ row.category }}</td>
+                  <td>${{ '%.2f'|format(row.amount_usd) }}</td>
+                  <td>{{ row.source }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="muted">No cost entries yet.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {% elif active_page == 'works' %}
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">Publishing workflow</div>
+          <h2>Published works tracker</h2>
+        </div>
+      </div>
+
+      <form method="post" action="/works" class="grid-form wide-gap">
+        <label>Title<input type="text" name="title" placeholder="Threat brief title" required></label>
+        <label>Status
+          <select name="status">
+            <option value="draft">Draft</option>
+            <option value="review">Review</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="published">Published</option>
+          </select>
+        </label>
+        <label>Outlet<input type="text" name="outlet" placeholder="Client portal, blog, LinkedIn" required></label>
+        <label>Publication date<input type="date" name="publication_date" value="{{ today }}" required></label>
+        <label>Due date<input type="date" name="due_date"></label>
+        <label>Owner<input type="text" name="owner" placeholder="Analyst / author"></label>
+        <label>Artifact type
+          <select name="artifact_type">
+            <option value="report">Report</option>
+            <option value="brief">Brief</option>
+            <option value="blog">Blog</option>
+            <option value="advisory">Advisory</option>
+            <option value="playbook">Playbook</option>
+          </select>
+        </label>
+        <label>Audience
+          <select name="audience">
+            <option value="internal">Internal</option>
+            <option value="client">Client</option>
+            <option value="public">Public</option>
+          </select>
+        </label>
+        <label class="full">URL<input type="url" name="url" placeholder="https://example.com/report"></label>
+        <label class="full">Tags<input type="text" name="tags" placeholder="ransomware, cti, healthcare"></label>
+        <label class="full">Notes<textarea name="notes" rows="3" placeholder="Audience notes, release blockers"></textarea></label>
+        <button type="submit">Add publication record</button>
+      </form>
+
+      <div class="table-wrap top-gap">
+        <table>
+          <thead>
+            <tr>
+              <th>Due / Published</th>
+              <th>Title</th>
+              <th>Status</th>
+              <th>Owner</th>
+              <th>Type</th>
+              <th>Audience</th>
+              <th>Outlet / URL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in works %}
+            <tr>
+              <td>
+                <div>{{ row.due_date or '—' }}</div>
+                <div class="table-secondary">pub {{ row.publication_date }}</div>
+              </td>
+              <td>
+                <div class="table-primary">{{ row.title }}</div>
+                {% for tag in row.tags|short_tags %}
+                <span class="pill">{{ tag }}</span>
+                {% endfor %}
+              </td>
+              <td>{{ row.status }}</td>
+              <td>{{ row.owner or '—' }}</td>
+              <td>{{ row.artifact_type }}</td>
+              <td>{{ row.audience }}</td>
+              <td>
+                <div>{{ row.outlet }}</div>
+                {% if row.url %}<a href="{{ row.url }}" target="_blank">{{ row.url }}</a>{% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="muted">No publication records yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {% elif active_page == 'clients' %}
+    <section class="panel cyber-panel">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">Private readiness</div>
+          <h2>Client and engagement profiles</h2>
+          <p class="lede small">Track private client intelligence requirements, delivery cadence, TLP constraints, technologies, and OpenCTI collection hints without adding public marketing or publication workflows.</p>
+        </div>
+      </div>
+
+      <div class="grid two-col gap-lg">
+        <div class="card">
+          <h3>Add private profile</h3>
+          <form method="post" action="/clients" class="stacked-form">
+            <label>Client/org alias<input type="text" name="org_alias" placeholder="Manufacturing Alpha" required></label>
+            <label>Sector<input type="text" name="sector" placeholder="manufacturing, healthcare, legal"></label>
+            <label>Priority intelligence requirements<textarea name="priority_requirements" rows="4" placeholder="Ransomware targeting, exposed VPNs, named threat actors, product CVEs"></textarea></label>
+            <label>Technologies/products of interest<textarea name="technologies" rows="3" placeholder="Fortinet, Palo Alto, Windows, M365, OT assets"></textarea></label>
+            <div class="grid two-col gap-lg compact-grid">
+              <label>Delivery cadence<input type="text" name="delivery_cadence" placeholder="weekly / monthly / ad hoc"></label>
+              <label>Allowed TLP<input type="text" name="allowed_tlp" value="TLP:AMBER"></label>
+            </div>
+            <label>OpenCTI collections<input type="text" name="opencti_collections" placeholder="Ransomware watchlist, sector collection"></label>
+            <label>Notes<textarea name="notes" rows="3" placeholder="Private engagement notes and constraints"></textarea></label>
+            <button type="submit">Save private profile</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Readiness inventory</h3>
+          {% if client_profiles %}
+          <div class="mini-table">
+            {% for client in client_profiles %}
+            <div class="mini-row">
+              <div>
+                <strong>{{ client.org_alias }}</strong>
+                <small>{{ client.sector or 'sector unset' }} · {{ client.delivery_cadence or 'cadence unset' }} · {{ client.allowed_tlp }}</small>
+                <div class="table-secondary">PIRs: {{ client.priority_requirements or 'not set' }}</div>
+                <div class="table-secondary">Tech: {{ client.technologies or 'not set' }}</div>
+                <div class="export-links tiny"><a href="/clients/{{ client.id }}/export" target="_blank">engagement export</a> · <a href="/clients/{{ client.id }}/brief" target="_blank">client brief</a></div>
+              </div>
+              <span>{{ client.active_reports }} reports / {{ client.detections_delivered }} detections</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="muted">No client readiness profiles yet.</p>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    {% elif active_page == 'tasks' %}
+    <section class="panel cyber-panel">
+      <div class="section-heading seam-heading">
+        <div>
+          <div class="eyebrow">Work queue</div>
+          <h2>Tasks</h2>
+          <p class="lede small">Pick the next card, start a new task, or filter down. The automation details stay out of the way until needed.</p>
+        </div>
+        <div class="button-row">
+          <a class="pill-link" href="#new-task">New task</a>
+          <a class="secondary pill-link" href="/tasks">Refresh</a>
+          <span class="pill live-pill" id="task-live-indicator">Live sync idle</span>
+        </div>
+      </div>
+
+      <div class="task-seam-strip">
+        <a href="/tasks" class="task-seam-pill"><strong>{{ task_board_payload.visible_task_count }}</strong><span>visible</span></a>
+        <button type="button" class="task-seam-pill quick-view-button" data-filter="status=blocked"><strong>{{ task_board_payload.analytics.blocked_count }}</strong><span>blocked</span></button>
+        <button type="button" class="task-seam-pill quick-view-button" data-filter="stale=true"><strong>{{ task_board_payload.analytics.stale_count }} / {{ task_board_payload.analytics.overdue_count }}</strong><span>stale / overdue</span></button>
+        <button type="button" class="task-seam-pill quick-view-button" data-filter="status=in_review"><strong>{{ task_board_payload.analytics.review_count }}</strong><span>review</span></button>
+        <button type="button" class="task-seam-pill quick-view-button" data-filter="qa=fail"><strong>{{ task_board_payload.analytics.qa_failing_count }}</strong><span>QA fail</span></button>
+      </div>
+
+      <div class="card top-gap board-filter-card seamless-filter-card">
+        <div class="quick-filter-row">
+          <label class="search-wide"><span class="sr-only">Search tasks</span><input type="search" id="task-board-search" placeholder="Search tasks, clients, report IDs, Hermes IDs"></label>
+          {% for view in task_board_payload.quick_views[:5] %}<button type="button" class="secondary small-button quick-view-button" data-filter="{{ view.filter }}">{{ view.label }}</button>{% endfor %}
+          <button type="button" class="secondary small-button" id="clear-board-filters">Clear</button>
+        </div>
+        <details class="advanced-filters">
+          <summary>Advanced filters</summary>
+          <div class="grid four-up gap-lg compact-grid board-filter-grid top-gap">
+            <label>Status<select id="task-filter-status"><option value="">All statuses</option>{% for row in task_board_payload.filter_options.statuses %}<option value="{{ row.key }}">{{ row.label }}</option>{% endfor %}</select></label>
+            <label>Assignee<select id="task-filter-assignee"><option value="">All assignees</option>{% for assignee in task_board_payload.filter_options.assignees %}<option value="{{ assignee }}">{{ assignee }}</option>{% endfor %}</select></label>
+            <label>Workflow<select id="task-filter-workflow"><option value="">All workflows</option>{% for workflow in task_board_payload.filter_options.workflows %}<option value="{{ workflow }}">{{ workflow }}</option>{% endfor %}</select></label>
+            <label>Source<select id="task-filter-source"><option value="">All sources</option>{% for source in task_board_payload.filter_options.source_pages %}<option value="{{ source }}">{{ source }}</option>{% endfor %}</select></label>
+            <label>Hermes status<select id="task-filter-kanban"><option value="">Any Hermes status</option>{% for status in task_board_payload.filter_options.kanban_statuses %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></label>
+            <label>QA<select id="task-filter-qa"><option value="">Any QA</option><option value="fail">Failing</option><option value="pass">Passing</option><option value="none">Not applicable</option></select></label>
+            <label class="checkbox-row top-gap"><input type="checkbox" id="task-filter-stale" value="true"><span>Stale only</span></label>
+          </div>
+        </details>
+      </div>
+
+      <details class="card top-gap quick-create-card" id="new-task">
+        <summary><strong>New task</strong><span>Create and dispatch a Hermes-backed task</span></summary>
+        <form method="post" action="/tasks" class="stacked-form top-gap" id="task-create-form">
+          <div class="grid two-col gap-lg compact-grid">
+            <label>Template
+              <select id="task-template-picker">
+                <option value="">Blank task…</option>
+                {% for template in task_board_payload.templates %}<option value="{{ template.key }}">{{ template.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Assignee
+              <input type="text" name="assignee" value="{{ current_user.username }}" placeholder="analyst name or handle">
+            </label>
+          </div>
+          <label>Title
+            <input type="text" name="title" placeholder="What needs to be done?" required>
+          </label>
+          <label>Description
+            <textarea name="description" rows="3" placeholder="Goal, scope, links, evidence, or exact deliverable."></textarea>
+          </label>
+          <div class="grid four-up gap-lg compact-grid advanced-task-fields">
+            <label>Type
+              <select name="task_type">
+                <option value="general">General</option>
+                <option value="research">Report / research</option>
+              </select>
+            </label>
+            <label>Workflow
+              <select name="research_workflow">
+                {% for workflow in workflow_options %}
+                <option value="{{ workflow.key }}" {% if workflow.key == 'threat-intel' %}selected{% endif %}>{{ workflow.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Priority<input type="number" name="priority" value="0"></label>
+            <label>Due date<input type="date" name="due_date"></label>
+            <label>Document category
+              <select name="document_category">
+                <option value="">None</option>
+                {% for category in report_category_options %}
+                <option value="{{ category }}">{{ category }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Hermes profile
+              <select name="worker_profile">
+                {% for profile in profile_options %}
+                <option value="{{ profile }}" {% if profile == portal_default_worker_profile %}selected{% endif %}>{{ profile }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>SLA hours<input type="number" name="sla_hours" value="24" min="0"></label>
+            <label>Parent task ID<input type="number" name="parent_task_id" value="0" min="0"></label>
+          </div>
+          <label>Acceptance criteria
+            <textarea name="acceptance_criteria" rows="2" placeholder="What makes this done?"></textarea>
+          </label>
+          <button type="submit">Create and start</button>
+        </form>
+      </details>
+
+      <div class="tasks-shell top-gap">
+        <form method="post" action="/tasks/bulk" class="card bulk-task-actions" id="bulk-task-form">
+          <div class="section-heading compact-heading">
+            <h3>Bulk actions</h3>
+            <p class="muted tiny">Select cards, then assign, comment, block, set due date/priority, or reject selected work.</p>
+          </div>
+          <div class="grid four-up gap-lg compact-grid">
+            <label>Action
+              <select name="action" id="bulk-action">
+                <option value="assign">Assign selected</option>
+                <option value="comment">Comment selected</option>
+                <option value="block">Block selected</option>
+                <option value="move">Move selected</option>
+                <option value="set_priority">Set priority</option>
+                <option value="set_due_date">Set due date</option>
+              </select>
+            </label>
+            <label>Assignee<input type="text" name="assignee" placeholder="rob / analyst"></label>
+            <label>Status<select name="status"><option value="blocked">Blocked</option><option value="todo">Todo</option><option value="in_progress">In Progress</option></select></label>
+            <label>Priority<input type="number" name="priority" value="0"></label>
+            <label>Due date<input type="date" name="due_date"></label>
+            <label>Blocked reason<input type="text" name="blocked_reason" placeholder="Waiting on logs, external data, etc."></label>
+            <label class="span-two">Comment<input type="text" name="comment" placeholder="Shared note for selected cards"></label>
+            <div class="button-row top-gap"><button type="submit" class="secondary small-button">Apply to selected</button><span class="muted tiny" id="bulk-selection-count">0 selected</span></div>
+          </div>
+        </form>
+        <div class="kanban-board">
+          {% for column in task_columns %}
+          <section class="kanban-lane" data-status="{{ column.key }}">
+            <header class="kanban-lane-header">
+              <div>
+                <div class="eyebrow small-eyebrow">{{ column.label }}</div>
+                <h3>{{ column['items']|length }} task{% if column['items']|length != 1 %}s{% endif %}</h3>
+              </div>
+            </header>
+            <div class="kanban-cards">
+              {% for task in column['items'] %}
+              <article class="kanban-card{% if selected_task_id == task.id %} selected{% endif %}" draggable="true" data-task-id="{{ task.id }}" data-status="{{ task.status }}" tabindex="0">
+                <div class="kanban-card-top">
+                  <label class="task-select"><input type="checkbox" name="task_ids" value="{{ task.id }}" form="bulk-task-form" data-task-select><span class="sr-only">Select task {{ task.id }}</span></label>
+                  <div>
+                    <h4>{{ task.title }}</h4>
+                    <p class="muted tiny compact-card-line">P{{ task.priority }} · {{ task.updated_at|pretty_dt }}{% if task.due_date %} · due {{ task.due_date }}{% endif %}{% if task.is_stale %} · stale {{ task.updated_age_hours }}h{% endif %}</p>
+                  </div>
+                </div>
+                <div class="card-meta-list">
+                  <div><span class="meta-label">Assignee</span><strong>{{ task.assignee or '—' }}</strong></div>
+                  <div><span class="meta-label">Profile</span><strong>{{ task.worker_profile or portal_default_worker_profile }}</strong></div>
+                  {% if task.client_profile %}<div><span class="meta-label">Client</span><strong>{{ task.client_profile.org_alias }}</strong></div>{% endif %}
+                </div>
+                <div class="kanban-link-block task-count-badges">
+                  {% if task.kanban_task_id %}<div class="pill workflow-pill{% if task.is_active %} live-badge{% endif %}">{{ task.kanban_status or 'linked' }}</div>{% endif %}
+                  {% if task.client_profile %}<div class="pill workflow-pill">{{ task.client_profile.org_alias }}</div>{% endif %}
+                  {% if task.report_quality %}<div class="pill {% if task.report_quality.pass_gate %}success-pill{% else %}warning-pill{% endif %}">QA {{ task.report_quality.score }}/100</div>{% endif %}
+                  {% if task.is_blocked %}<div class="pill warning-pill">blocked</div>{% endif %}
+                  {% if task.is_stale %}<div class="pill warning-pill">stale {{ task.updated_age_hours }}h</div>{% endif %}
+                  {% if task.is_overdue %}<div class="pill danger-pill">overdue</div>{% endif %}
+                  {% if task.dependency_label %}<div class="pill workflow-pill">{{ task.dependency_label }}</div>{% endif %}
+                </div>
+                <div class="button-row top-gap card-actions">
+                  <button type="button" class="secondary small-button task-detail-button" data-task-id="{{ task.id }}">Details</button>
+                  <button type="button" class="secondary small-button quick-copy-link" data-task-id="{{ task.id }}">Copy link</button>
+                  {% if task.kanban_task_id %}<button type="button" class="secondary small-button quick-copy-hermes" data-hermes-id="{{ task.kanban_task_id }}">Copy Hermes ID</button>{% endif %}
+                  <button type="button" class="secondary small-button quick-assign-me" data-task-id="{{ task.id }}">Assign to me</button>
+                  <button type="button" class="secondary small-button quick-comment" data-task-id="{{ task.id }}">Comment</button>
+                  {% if task.status in ['todo','in_progress','in_review'] %}<button type="button" class="secondary small-button quick-block" data-task-id="{{ task.id }}">Block</button>{% endif %}
+                  {% if task.status == 'todo' %}
+                  <button type="button" class="secondary small-button move-task-button" data-task-id="{{ task.id }}" data-next-status="in_progress">Start</button>
+                  {% elif task.status == 'in_progress' %}
+                  <button type="button" class="secondary small-button move-task-button" data-task-id="{{ task.id }}" data-next-status="in_review">Review →</button>
+                  {% elif task.status == 'blocked' %}
+                  <button type="button" class="secondary small-button move-task-button" data-task-id="{{ task.id }}" data-next-status="todo">Back to Todo</button>
+                  <button type="button" class="secondary small-button move-task-button" data-task-id="{{ task.id }}" data-next-status="in_progress">Resume</button>
+                  {% elif task.status == 'in_review' %}
+                  <button type="button" class="secondary small-button move-task-button" data-task-id="{{ task.id }}" data-next-status="in_progress">Revise ↺</button>
+                  <button type="button" class="secondary small-button move-task-button" data-task-id="{{ task.id }}" data-next-status="accepted">Publish</button>
+                  {% else %}
+                  <span class="muted tiny">No further moves</span>
+                  {% endif %}
+                </div>
+              </article>
+              {% else %}
+              <div class="empty-lane">No tasks in {{ column.label.lower() }}.</div>
+              {% endfor %}
+            </div>
+          </section>
+          {% endfor %}
+        </div>
+
+        <div class="task-detail-modal" id="task-detail-modal" hidden>
+          <div class="task-detail-backdrop" data-close-task-detail></div>
+          <section class="card task-detail-panel" id="task-detail-panel" role="dialog" aria-modal="true" aria-labelledby="task-detail-title">
+            <div class="task-detail-empty muted">Select a task card to inspect comments, history, routing, and publish readiness.</div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <script>
+    (() => {
+      const boardData = {{ task_board_payload|tojson }};
+      const taskMap = new Map((boardData.tasks || []).map((task) => [String(task.id), task]));
+      const taskTemplates = new Map((boardData.templates || []).map((template) => [String(template.key), template]));
+      const detailPanel = document.getElementById('task-detail-panel');
+      const detailModal = document.getElementById('task-detail-modal');
+      const liveIndicator = document.getElementById('task-live-indicator');
+      let currentFingerprint = boardData.fingerprint || '';
+      let pollTimer = null;
+
+      const escapeHtml = (value) => String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+      const toast = (message) => {
+        liveIndicator.textContent = message;
+      };
+
+      const copyText = async (value) => {
+        try {
+          await navigator.clipboard.writeText(value);
+          toast('Copied to clipboard');
+        } catch (_) {
+          window.prompt('Copy this value:', value);
+        }
+      };
+
+      const boardFilterElements = {
+        q: document.getElementById('task-board-search'),
+        status: document.getElementById('task-filter-status'),
+        assignee: document.getElementById('task-filter-assignee'),
+        workflow: document.getElementById('task-filter-workflow'),
+        source: document.getElementById('task-filter-source'),
+        kanban: document.getElementById('task-filter-kanban'),
+        qa: document.getElementById('task-filter-qa'),
+        stale: document.getElementById('task-filter-stale'),
+      };
+
+      const hydrateFilterControls = () => {
+        const filters = boardData.filters || {};
+        Object.entries(boardFilterElements).forEach(([key, element]) => {
+          if (!element) return;
+          if (element.type === 'checkbox') {
+            element.checked = ['1', 'true', 'yes'].includes(String(filters[key] || '').toLowerCase());
+          } else {
+            element.value = filters[key] || '';
+          }
+        });
+      };
+
+      const applyBoardFilters = (extra = {}) => {
+        const params = new URLSearchParams(window.location.search);
+        Object.entries(boardFilterElements).forEach(([key, element]) => {
+          if (!element) return;
+          const value = element.type === 'checkbox' ? (element.checked ? 'true' : '') : element.value.trim();
+          if (value) params.set(key, value); else params.delete(key);
+        });
+        Object.entries(extra).forEach(([key, value]) => {
+          if (value) params.set(key, value); else params.delete(key);
+        });
+        const query = params.toString();
+        window.location.href = `${window.location.pathname}${query ? `?${query}` : ''}`;
+      };
+
+      const selectedFromHash = () => {
+        if (window.location.hash.startsWith('#task-')) {
+          return window.location.hash.replace('#task-', '');
+        }
+        return boardData.selected_task_id ? String(boardData.selected_task_id) : '';
+      };
+
+      const setSelectedCard = (taskId) => {
+        document.querySelectorAll('.kanban-card').forEach((card) => {
+          card.classList.toggle('selected', card.dataset.taskId === taskId);
+        });
+      };
+
+      const openTaskDetailModal = () => {
+        detailModal.hidden = false;
+        document.body.classList.add('modal-open');
+      };
+
+      const closeTaskDetailModal = () => {
+        detailModal.hidden = true;
+        document.body.classList.remove('modal-open');
+      };
+
+      const renderTaskDetail = (taskId) => {
+        const task = taskMap.get(String(taskId));
+        if (!task) {
+          detailPanel.innerHTML = '<div class="task-detail-empty muted">Task details unavailable.</div>';
+          openTaskDetailModal();
+          return;
+        }
+        window.location.hash = `task-${task.id}`;
+        setSelectedCard(String(task.id));
+        const comments = (task.comments || []).map((comment) => `
+          <article class="detail-entry">
+            <div class="detail-entry-meta">${escapeHtml(comment.author)} · ${escapeHtml(comment.source || 'portal')} · ${escapeHtml(comment.created_at ? comment.created_at.replace('T', ' ').slice(0, 19) : '—')}</div>
+            <div class="detail-entry-body">${escapeHtml(comment.comment)}</div>
+          </article>
+        `).join('') || '<div class="muted">No comments yet.</div>';
+        const history = (task.history || []).map((event) => `
+          <article class="detail-entry history-entry">
+            <div class="detail-entry-meta">${escapeHtml(event.actor)} · ${escapeHtml(event.source || 'portal')} · ${escapeHtml(event.created_at ? event.created_at.replace('T', ' ').slice(0, 19) : '—')} · ${escapeHtml(event.event_type)}</div>
+            <div class="detail-entry-body">${escapeHtml(event.detail)}</div>
+          </article>
+        `).join('') || '<div class="muted">No history recorded yet.</div>';
+        const quality = task.report_quality;
+        const qualityBlock = quality ? `
+          <div class="detail-section">
+            <h4>Report quality gate</h4>
+            <div class="task-detail-grid">
+              <div><span class="meta-label">Score</span><strong>${escapeHtml(String(quality.score || 0))}/100</strong></div>
+              <div><span class="meta-label">Grade</span><strong>${escapeHtml(quality.grade || 'needs_work')}</strong></div>
+              <div><span class="meta-label">Source</span><strong>${escapeHtml(quality.source || 'missing')}</strong></div>
+              <div><span class="meta-label">Gate</span><strong>${quality.pass_gate ? 'Ready' : 'Blocked'}</strong></div>
+            </div>
+            ${(quality.missing_required || []).length ? `<p class="muted top-gap">Missing: ${escapeHtml((quality.missing_required || []).join(', '))}</p>` : '<p class="muted top-gap">All required Your Organization checks passed.</p>'}
+          </div>
+        ` : '';
+        detailPanel.innerHTML = `
+          <div class="task-detail-header">
+            <div>
+              <div class="eyebrow small-eyebrow">Task details</div>
+              <h3 id="task-detail-title">${escapeHtml(task.title)}</h3>
+            </div>
+            <div class="button-row">
+              <span class="pill lane-pill">${escapeHtml(task.status_label)}</span>
+              <button type="button" class="secondary small-button" data-close-task-detail>Close</button>
+            </div>
+          </div>
+          <p class="muted">${escapeHtml(task.description || 'No description provided.')}</p>
+          <div class="task-detail-grid">
+            <div><span class="meta-label">Requested by</span><strong>${escapeHtml(task.requested_by || '—')}</strong></div>
+            <div><span class="meta-label">Assignee</span><strong>${escapeHtml(task.assignee || '—')}</strong></div>
+            <div><span class="meta-label">Hermes profile</span><strong>${escapeHtml(task.worker_profile || '{{ portal_default_worker_profile }}')}</strong></div>
+            <div><span class="meta-label">Updated</span><strong>${escapeHtml(task.updated_at ? task.updated_at.replace('T', ' ').slice(0, 19) : '—')}</strong></div>
+            <div><span class="meta-label">Hermes task</span><strong>${escapeHtml(task.kanban_task_id || '—')}</strong></div>
+            <div><span class="meta-label">Hermes status</span><strong>${escapeHtml(task.kanban_status || '—')}</strong></div>
+            <div><span class="meta-label">Task type</span><strong>${escapeHtml(task.task_type || 'general')}</strong></div>
+            <div><span class="meta-label">Workflow</span><strong>${escapeHtml(task.research_workflow || '—')}</strong></div>
+            <div><span class="meta-label">Client / engagement</span><strong>${escapeHtml(task.client_profile ? task.client_profile.org_alias : 'Internal research')}</strong></div>
+            <div><span class="meta-label">Final category</span><strong>${escapeHtml(task.document_category || '—')}</strong></div>
+            <div><span class="meta-label">Published record</span><strong>${task.published_work_id ? escapeHtml(String(task.published_work_id)) : '—'}</strong></div>
+            <div><span class="meta-label">Due date</span><strong>${escapeHtml(task.due_date || '—')} ${task.due_state && task.due_state !== 'none' ? `(${escapeHtml(task.due_state.replace('_', ' '))})` : ''}</strong></div>
+            <div><span class="meta-label">Lane age</span><strong>${escapeHtml(String(task.lane_age_hours || 0))}h</strong></div>
+            <div><span class="meta-label">SLA hours</span><strong>${escapeHtml(String(task.sla_hours || '—'))}</strong></div>
+            <div><span class="meta-label">Dependency</span><strong>${escapeHtml(task.dependency_label || '—')}</strong></div>
+          </div>
+          ${task.acceptance_criteria ? `<div class="detail-section"><h4>Acceptance criteria</h4><p class="muted">${escapeHtml(task.acceptance_criteria)}</p></div>` : ''}
+          ${task.blocked_reason ? `<div class="detail-section warning-note"><h4>Blocked reason</h4><p>${escapeHtml(task.blocked_reason)}</p></div>` : ''}
+          ${task.last_result ? `<div class="result-snippet detail-result">${escapeHtml(task.last_result)}</div>` : ''}
+          ${(task.uploaded_file_list || []).length ? `
+            <div class="detail-section">
+              <h4>Evidence files</h4>
+              <div class="tag-list">${task.uploaded_file_list.map((file) => `<span class="pill">${escapeHtml(file.split('/').pop() || file)}</span>`).join('')}</div>
+            </div>
+          ` : ''}
+          ${(task.review_document_path || task.final_document_path) ? `
+            <div class="detail-section">
+              <h4>Documents</h4>
+              ${task.review_document_path ? `<div class="detail-link-row"><span class="meta-label">In Review</span><a href="/documents/open?category=In%20Review&file=${encodeURIComponent(task.review_document_name || '')}" target="_blank">${escapeHtml(task.review_document_name || task.review_document_path)}</a></div>` : ''}
+              ${task.final_document_path ? (() => { const parts = String(task.final_document_path).split('/'); const fileName = task.final_document_name || parts[parts.length - 1] || ''; const category = task.document_category || ''; return `<div class="detail-link-row"><span class="meta-label">Final</span><a href="/documents/open?category=${encodeURIComponent(category)}&file=${encodeURIComponent(fileName)}" target="_blank">${escapeHtml(fileName || task.final_document_path)}</a></div>`; })() : ''}
+            </div>
+          ` : ''}
+          ${qualityBlock}
+          <div class="detail-section">
+            <h4>Client / engagement</h4>
+            <form method="post" action="/tasks/${task.id}/client" class="stacked-form compact-form">
+              <label>Private profile
+                <select name="client_profile_id">
+                  <option value="0" ${!(task.client_profile_id || 0) ? 'selected' : ''}>Internal research / no client</option>
+                  {% for client in client_profiles %}
+                  <option value="{{ client.id }}" ${Number(task.client_profile_id || 0) === {{ client.id }} ? 'selected' : ''}>{{ client.org_alias }}{% if client.sector %} · {{ client.sector }}{% endif %}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <button type="submit" class="secondary small-button">Save client link</button>
+            </form>
+          </div>
+          <div class="detail-section">
+            <h4>Routing</h4>
+            <form method="post" action="/tasks/${task.id}/ownership" class="stacked-form compact-form">
+              <label>Assignee
+                <input type="text" name="assignee" value="${escapeHtml(task.assignee || '')}" placeholder="analyst name or handle">
+              </label>
+              <label>Hermes profile
+                <select name="worker_profile">
+                  {% for profile in profile_options %}
+                  <option value="{{ profile }}" ${task.worker_profile === '{{ profile }}' ? 'selected' : ''}>{{ profile }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>Task type
+                <select name="task_type">
+                  <option value="general" ${task.task_type !== 'research' ? 'selected' : ''}>General task</option>
+                  <option value="research" ${task.task_type === 'research' ? 'selected' : ''}>Report / research task</option>
+                </select>
+              </label>
+              <label>Research workflow
+                <select name="research_workflow">
+                  {% for workflow in workflow_options %}
+                  <option value="{{ workflow.key }}" ${(task.research_workflow || 'general') === '{{ workflow.key }}' ? 'selected' : ''}>{{ workflow.label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>Final document category
+                <select name="document_category">
+                  <option value="" ${!(task.document_category || '') ? 'selected' : ''}>Select category…</option>
+                  {% for category in report_category_options %}
+                  <option value="{{ category }}" ${(task.document_category || '') === '{{ category }}' ? 'selected' : ''}>{{ category }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <button type="submit" class="secondary small-button">Save routing</button>
+            </form>
+          </div>
+          <div class="detail-section">
+            <h4>Comments</h4>
+            <form method="post" action="/tasks/${task.id}/comments" class="stacked-form compact-form">
+              <label>Add comment
+                <textarea name="comment" rows="3" placeholder="Add analyst notes, blockers, or handoff context."></textarea>
+              </label>
+              <button type="submit" class="secondary small-button">Save comment</button>
+            </form>
+            <div class="detail-entry-list">${comments}</div>
+          </div>
+          <div class="detail-section">
+            <h4>Notes</h4>
+            <form method="post" action="/tasks/${task.id}/review" class="stacked-form compact-form task-review-form">
+              <label>Review notes
+                <textarea name="review_notes" rows="5" placeholder="Optional operator notes, revision context, or publish caveats.">${escapeHtml(task.review_notes || '')}</textarea>
+              </label>
+              <div class="button-row wrap-actions">
+                <button type="submit" class="secondary small-button">Save review</button>
+                ${task.status === 'todo' ? `<button type="button" class="secondary small-button move-task-button" data-task-id="${task.id}" data-next-status="in_progress">Start</button>` : ''}
+
+                ${task.status === 'in_review' ? `<button type="button" class="secondary small-button move-task-button request-revision-button" data-task-id="${task.id}" data-next-status="in_progress">Send back to In Progress</button>` : ''}
+                ${task.status === 'in_review' ? `<button type="button" class="secondary small-button approve-publish-button" data-task-id="${task.id}">Publish</button>` : ''}
+              </div>
+            </form>
+          </div>
+          <div class="detail-section">
+            <h4>History</h4>
+            <div class="detail-entry-list">${history}</div>
+          </div>
+        `;
+        openTaskDetailModal();
+      };
+
+      const postMove = async (taskId, status) => {
+        const body = new URLSearchParams({status});
+        const response = await fetch(`/tasks/${taskId}/move`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: body.toString(),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error || 'Task move failed');
+        }
+        currentFingerprint = payload.fingerprint || currentFingerprint;
+        return payload;
+      };
+
+      const pollBoard = async () => {
+        try {
+          const response = await fetch(`/tasks/board-data${window.location.search || ''}`);
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) {
+            throw new Error(payload.error || 'Board refresh failed');
+          }
+          const stamp = new Date().toLocaleTimeString();
+          liveIndicator.textContent = payload.has_active_tasks ? `Live sync active · checked ${stamp}` : `Live sync idle · checked ${stamp}`;
+          liveIndicator.classList.toggle('live-badge', Boolean(payload.has_active_tasks));
+          if (payload.fingerprint && payload.fingerprint !== currentFingerprint) {
+            currentFingerprint = payload.fingerprint;
+            liveIndicator.textContent = `Board changed · filters/modal preserved · refresh when ready (${stamp})`;
+            liveIndicator.classList.add('warning-pill');
+          }
+          if (!payload.has_active_tasks && pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+        } catch (error) {
+          liveIndicator.textContent = `Live sync error · ${error.message}`;
+        }
+      };
+
+      hydrateFilterControls();
+      Object.values(boardFilterElements).forEach((element) => {
+        if (!element) return;
+        element.addEventListener(element.type === 'search' ? 'keydown' : 'change', (event) => {
+          if (element.type === 'search' && event.key !== 'Enter') return;
+          applyBoardFilters();
+        });
+      });
+      document.getElementById('clear-board-filters')?.addEventListener('click', () => {
+        window.location.href = window.location.pathname;
+      });
+      document.querySelectorAll('.quick-view-button').forEach((button) => {
+        button.addEventListener('click', () => {
+          const pairs = String(button.dataset.filter || '').split(',').map((part) => part.split('='));
+          const extra = {};
+          pairs.forEach(([key, value]) => {
+            if (key === 'assignee' && value === 'current') value = '{{ current_user.username }}';
+            if (key === 'client' && value === 'linked') extra.client = 'linked';
+            else if (key === 'stale') extra.stale = value;
+            else if (key === 'source') extra.source = value;
+            else if (key === 'qa') extra.qa = value;
+            else if (key === 'status') extra.status = value;
+            else if (key === 'assignee') extra.assignee = value;
+          });
+          applyBoardFilters(extra);
+        });
+      });
+
+      const templatePicker = document.getElementById('task-template-picker');
+      templatePicker?.addEventListener('change', () => {
+        const template = taskTemplates.get(templatePicker.value);
+        const form = document.getElementById('task-create-form');
+        if (!template || !form) return;
+        form.querySelector('[name="title"]').value = template.label;
+        form.querySelector('[name="description"]').value = template.description || '';
+        form.querySelector('[name="priority"]').value = template.priority || 0;
+        form.querySelector('[name="task_type"]').value = template.task_type || 'general';
+        form.querySelector('[name="research_workflow"]').value = template.research_workflow || 'general';
+        form.querySelector('[name="document_category"]').value = template.document_category || '';
+        form.querySelector('[name="acceptance_criteria"]').value = template.acceptance_criteria || '';
+      });
+
+      const updateBulkSelectionCount = () => {
+        const count = document.querySelectorAll('[data-task-select]:checked').length;
+        const target = document.getElementById('bulk-selection-count');
+        if (target) target.textContent = `${count} selected`;
+      };
+      document.querySelectorAll('[data-task-select]').forEach((checkbox) => checkbox.addEventListener('change', updateBulkSelectionCount));
+      document.getElementById('bulk-task-form')?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const selected = document.querySelectorAll('[data-task-select]:checked');
+        if (!selected.length) {
+          alert('Select at least one task.');
+          return;
+        }
+        const form = event.currentTarget;
+        try {
+          const response = await fetch(form.action, {method: 'POST', body: new FormData(form)});
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) throw new Error(payload.error || 'Bulk action failed');
+          toast(payload.message || 'Bulk action applied');
+          window.location.reload();
+        } catch (error) {
+          alert(error.message);
+        }
+      });
+
+      document.addEventListener('click', async (event) => {
+        const copyLink = event.target.closest('.quick-copy-link');
+        if (copyLink) {
+          event.stopPropagation();
+          await copyText(`${window.location.origin}${window.location.pathname}#task-${copyLink.dataset.taskId}`);
+          return;
+        }
+        const copyHermes = event.target.closest('.quick-copy-hermes');
+        if (copyHermes) {
+          event.stopPropagation();
+          await copyText(copyHermes.dataset.hermesId || '');
+          return;
+        }
+        const assignMe = event.target.closest('.quick-assign-me');
+        if (assignMe) {
+          event.stopPropagation();
+          const body = new URLSearchParams({action: 'assign', assignee: '{{ current_user.username }}'});
+          body.append('task_ids', assignMe.dataset.taskId);
+          const response = await fetch('/tasks/bulk', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: body.toString()});
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) alert(payload.error || 'Assign failed'); else window.location.reload();
+          return;
+        }
+        const quickComment = event.target.closest('.quick-comment');
+        if (quickComment) {
+          event.stopPropagation();
+          const comment = window.prompt('Quick comment for this task:');
+          if (!comment) return;
+          const body = new URLSearchParams({action: 'comment', comment});
+          body.append('task_ids', quickComment.dataset.taskId);
+          const response = await fetch('/tasks/bulk', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: body.toString()});
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) alert(payload.error || 'Comment failed'); else window.location.reload();
+          return;
+        }
+        const quickBlock = event.target.closest('.quick-block');
+        if (quickBlock) {
+          event.stopPropagation();
+          const blockedReason = window.prompt('Why is this task blocked?');
+          if (!blockedReason) return;
+          const body = new URLSearchParams({action: 'block', blocked_reason: blockedReason});
+          body.append('task_ids', quickBlock.dataset.taskId);
+          const response = await fetch('/tasks/bulk', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: body.toString()});
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) alert(payload.error || 'Block failed'); else window.location.reload();
+        }
+      });
+
+      document.querySelectorAll('.move-task-button').forEach((button) => {
+        button.addEventListener('click', async () => {
+          button.disabled = true;
+          try {
+            await postMove(button.dataset.taskId, button.dataset.nextStatus);
+            window.location.reload();
+          } catch (error) {
+            alert(error.message);
+            button.disabled = false;
+          }
+        });
+      });
+
+      detailPanel.addEventListener('click', async (event) => {
+        const moveButton = event.target.closest('.move-task-button');
+        if (moveButton) {
+          moveButton.disabled = true;
+          try {
+            await postMove(moveButton.dataset.taskId, moveButton.dataset.nextStatus);
+            window.location.reload();
+          } catch (error) {
+            alert(error.message);
+            moveButton.disabled = false;
+          }
+          return;
+        }
+        const button = event.target.closest('.approve-publish-button');
+        if (!button) return;
+        button.disabled = true;
+        const reviewForm = button.closest('.task-review-form');
+        const reviewNotes = reviewForm?.querySelector('textarea[name="review_notes"]')?.value || '';
+        const reviewerSignoff = '';
+        try {
+          const body = new URLSearchParams({review_notes: reviewNotes, reviewer_signoff: reviewerSignoff});
+          const response = await fetch(`/tasks/${button.dataset.taskId}/approve-publish`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: body.toString(),
+          });
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) {
+            throw new Error(payload.error || 'Publish failed');
+          }
+          alert(payload.message || 'Task published.');
+          if (window.location.hash === `#task-${button.dataset.taskId}`) {
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+          window.location.reload();
+        } catch (error) {
+          alert(error.message);
+          button.disabled = false;
+        }
+      });
+
+      document.querySelectorAll('.task-detail-button, .kanban-card').forEach((element) => {
+        element.addEventListener('click', (event) => {
+          if (event.target.closest('.move-task-button, .quick-copy-link, .quick-copy-hermes, .quick-assign-me, .quick-comment, .quick-block, .task-select, input[type="checkbox"]')) return;
+          const card = event.currentTarget.closest('.kanban-card') || event.currentTarget;
+          renderTaskDetail(card.dataset.taskId);
+        });
+      });
+
+      document.addEventListener('click', (event) => {
+        if (event.target.closest('[data-close-task-detail]')) {
+          closeTaskDetailModal();
+        }
+      });
+
+      document.addEventListener('keydown', (event) => {
+        const target = event.target;
+        const isTyping = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+        if (event.key === 'Escape' && !detailModal.hidden) {
+          closeTaskDetailModal();
+          return;
+        }
+        if (isTyping) return;
+        if (event.key === '/') {
+          event.preventDefault();
+          boardFilterElements.q?.focus();
+        } else if (event.key.toLowerCase() === 'n') {
+          event.preventDefault();
+          document.querySelector('#task-create-form [name="title"]')?.focus();
+        } else if (event.key.toLowerCase() === 'r') {
+          event.preventDefault();
+          window.location.reload();
+        } else if (event.key.toLowerCase() === 'c' && selectedFromHash()) {
+          event.preventDefault();
+          renderTaskDetail(selectedFromHash());
+        }
+      });
+
+      document.querySelectorAll('.kanban-card').forEach((card) => {
+        card.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            renderTaskDetail(card.dataset.taskId);
+          }
+        });
+      });
+
+      let dragged = null;
+      document.querySelectorAll('.kanban-card').forEach((card) => {
+        card.addEventListener('dragstart', () => {
+          dragged = card;
+          card.classList.add('dragging');
+        });
+        card.addEventListener('dragend', () => {
+          card.classList.remove('dragging');
+          dragged = null;
+          document.querySelectorAll('.kanban-lane').forEach((lane) => lane.classList.remove('drag-over'));
+        });
+      });
+
+      document.querySelectorAll('.kanban-lane').forEach((lane) => {
+        lane.addEventListener('dragover', (event) => {
+          event.preventDefault();
+          lane.classList.add('drag-over');
+        });
+        lane.addEventListener('dragleave', () => lane.classList.remove('drag-over'));
+        lane.addEventListener('drop', async (event) => {
+          event.preventDefault();
+          lane.classList.remove('drag-over');
+          if (!dragged) return;
+          const taskId = dragged.dataset.taskId;
+          const targetStatus = lane.dataset.status;
+          if (targetStatus === dragged.dataset.status) return;
+          try {
+            await postMove(taskId, targetStatus);
+            window.location.reload();
+          } catch (error) {
+            alert(error.message);
+          }
+        });
+      });
+
+      const initialTaskId = selectedFromHash();
+      if (window.location.hash.startsWith('#task-') && initialTaskId) {
+        renderTaskDetail(initialTaskId);
+      } else if (initialTaskId) {
+        setSelectedCard(initialTaskId);
+      }
+      if (boardData.has_active_tasks) {
+        liveIndicator.textContent = 'Live sync active';
+        liveIndicator.classList.add('live-badge');
+        pollTimer = window.setInterval(pollBoard, 10000);
+      }
+    })();
+    </script>
+
+    {% elif active_page == 'deploy' %}
+    <section class="panel cyber-panel">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">Internal rollout</div>
+          <h2>Deployment artifacts included</h2>
+        </div>
+      </div>
+      <div class="grid three-up gap-lg">
+        <article class="card">
+          <h3>Caddy reverse proxy</h3>
+          <p>Use the included Caddyfile for LAN/VPN HTTPS with Caddy’s internal CA.</p>
+          <code>deploy/Caddyfile</code>
+        </article>
+        <article class="card">
+          <h3>Nginx option</h3>
+          <p>Alternative proxy config if your stack is already standardized on nginx.</p>
+          <code>deploy/nginx.conf</code>
+        </article>
+        <article class="card">
+          <h3>systemd service</h3>
+          <p>Run the portal as a durable service on an internal Linux host.</p>
+          <code>deploy/your-organization-portal.service</code>
+        </article>
+      </div>
+      <div class="top-gap export-links">
+        <a href="/export/searches" target="_blank">Export searches JSON</a>
+        <a href="/export/costs" target="_blank">Export costs JSON</a>
+        <a href="/export/works" target="_blank">Export works JSON</a>
+        <a href="/export/sync-runs" target="_blank">Export sync history JSON</a>
+        {% if current_user.role == 'admin' %}<a href="/export/audit-logs" target="_blank">Export audit log JSON</a>{% endif %}
+      </div>
+    </section>
+    {% endif %}
+  </main>
+<script>
+  const transcript = document.getElementById('chat-transcript');
+  if (transcript) transcript.scrollTop = transcript.scrollHeight;
+  {% if chat_pending %}
+  window.setTimeout(() => window.location.reload(), 5000);
+  {% endif %}
+
+</script>
+</body>
+</html>

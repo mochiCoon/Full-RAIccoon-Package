@@ -1,0 +1,11 @@
+yourorg-portal.internal {
+    tls internal
+    encode gzip zstd
+
+    @allowed remote_ip 127.0.0.1/32 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+    handle @allowed {
+        reverse_proxy 127.0.0.1:8008
+    }
+
+    respond "Forbidden" 403
+}

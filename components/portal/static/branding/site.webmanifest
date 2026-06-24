@@ -1,0 +1,9 @@
+{
+  "name": "RAIccoon Operations Portal",
+  "short_name": "RAIccoon",
+  "description": "Brand-neutral analyst operations portal.",
+  "icons": [],
+  "theme_color": "#123d63",
+  "background_color": "#0a1924",
+  "display": "standalone"
+}

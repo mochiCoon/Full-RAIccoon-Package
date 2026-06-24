@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime / local artifacts
+data/*
+!data/sample-costs.csv
+*.sqlite
+*.db
+*.db-*
+*.db.bak-*
+*.runtime
+
+# Uploaded/generated/local notes
+test-upload.txt
+verify-note.txt
+HANDOFF_PORTAL_NEXT_STEPS.md
+rotated-portal-admin-creds.txt
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
