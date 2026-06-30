@@ -288,6 +288,545 @@
       </div>
     </section>
 
+    {% elif active_page == 'soar' %}
+    <section class="panel cyber-panel">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">Portal-native orchestration</div>
+          <h2>SOAR command center</h2>
+          <p class="muted small">Run case-driven response from the same portal shell: cases, playbooks, approvals, and workflow runs stay in one operator workspace.</p>
+        </div>
+      </div>
+
+      <div class="cards four-up compact-stat-grid">
+        <article class="stat-card mini-stat"><span class="label">Open cases</span><strong>{{ soar_summary.open_cases }}</strong><small><a class="secondary pill-link" href="/cases">Open workspace</a></small></article>
+        <article class="stat-card mini-stat"><span class="label">Active runs</span><strong>{{ soar_summary.active_runs }}</strong><small><a class="secondary pill-link" href="/playbooks">Run history</a></small></article>
+        <article class="stat-card mini-stat"><span class="label">Pending approvals</span><strong>{{ soar_summary.pending_approvals }}</strong><small><a class="secondary pill-link" href="/approvals">Resolve queue</a></small></article>
+        <article class="stat-card mini-stat"><span class="label">Playbooks</span><strong>{{ soar_summary.playbook_count }}</strong><small>disk-backed registry</small></article>
+      </div>
+
+      <div class="grid two-col gap-lg top-gap">
+        <div class="card">
+          <div class="section-heading compact-heading">
+            <div>
+              <div class="eyebrow small-eyebrow">Cases</div>
+              <h3>Open case pressure</h3>
+            </div>
+            <a class="secondary pill-link" href="/cases">Open cases</a>
+          </div>
+          <div class="workflow-focus-list compact-home-focus">
+            {% for case in open_soar_cases[:6] %}
+            <a class="workflow-focus-item" href="/cases/{{ case.id }}">
+              <span class="workflow-focus-id">#{{ case.id }}</span>
+              <span class="workflow-focus-body">
+                <strong>{{ case.title }}</strong>
+                <small>{{ case.case_type }} · {{ case.severity }} · {{ case.status }}</small>
+                {% if case.latest_event %}<small>{{ case.latest_event.detail }}</small>{% endif %}
+              </span>
+            </a>
+            {% else %}
+            <div class="workflow-focus-item empty-focus"><span class="workflow-focus-id">0</span><span class="workflow-focus-body"><strong>No cases open.</strong><small>Start intake from the existing portal workflows when you need structured evidence tracking.</small></span></div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="section-heading compact-heading">
+            <div>
+              <div class="eyebrow small-eyebrow">Approvals</div>
+              <h3>Pending operator holds</h3>
+            </div>
+            {% if current_user.role == 'admin' %}
+            <a class="secondary pill-link" href="/approvals">Open approvals</a>
+            {% endif %}
+          </div>
+          <div class="workflow-focus-list compact-home-focus">
+            {% if current_user.role == 'admin' %}
+              {% for approval in pending_approvals %}
+              <a class="workflow-focus-item" href="/tasks#task-{{ approval.task_id }}">
+                <span class="workflow-focus-id">#{{ approval.task_id }}</span>
+                <span class="workflow-focus-body">
+                  <strong>{{ approval.task_title or approval.action }}</strong>
+                  <small>{{ approval.action }}{% if approval.case_title %} · {{ approval.case_title }}{% endif %}</small>
+                  <small>{{ approval.reason }}</small>
+                </span>
+              </a>
+              {% else %}
+              <div class="workflow-focus-item empty-focus"><span class="workflow-focus-id">OK</span><span class="workflow-focus-body"><strong>No pending approvals.</strong><small>Sensitive task transitions are clear right now.</small></span></div>
+              {% endfor %}
+            {% else %}
+            <div class="workflow-focus-item empty-focus"><span class="workflow-focus-id">ADM</span><span class="workflow-focus-body"><strong>Approval details are restricted.</strong><small>Administrators can review pending holds from the approvals queue.</small></span></div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="grid two-col gap-lg top-gap">
+        <div class="card">
+          <div class="section-heading compact-heading">
+            <div>
+              <div class="eyebrow small-eyebrow">Workflow execution</div>
+              <h3>Recent active runs</h3>
+            </div>
+            <a class="secondary pill-link" href="/playbooks">Playbook catalog</a>
+          </div>
+          <div class="workflow-focus-list compact-home-focus">
+            {% for run in soar_active_runs[:6] %}
+            <a class="workflow-focus-item" href="{% if run.case_id %}/cases/{{ run.case_id }}{% else %}/playbooks{% endif %}">
+              <span class="workflow-focus-id">#{{ run.id }}</span>
+              <span class="workflow-focus-body">
+                <strong>{{ run.playbook_title }}</strong>
+                <small>{{ run.status }}{% if run.case_title %} · {{ run.case_title }}{% endif %}</small>
+                {% if run.input_data.task_title %}<small>task context · {{ run.input_data.task_title }}</small>{% endif %}
+              </span>
+            </a>
+            {% else %}
+            <div class="workflow-focus-item empty-focus"><span class="workflow-focus-id">0</span><span class="workflow-focus-body"><strong>No active runs.</strong><small>Launch a playbook from Cases or Playbooks when a workflow needs durable tracking.</small></span></div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="section-heading compact-heading">
+            <div>
+              <div class="eyebrow small-eyebrow">Operator actions</div>
+              <h3>Work the SOAR flow inside the portal</h3>
+            </div>
+          </div>
+          <div class="cards three-up compact-stat-grid">
+            <a class="card action-card" href="/cases">
+              <span class="label">Cases</span>
+              <strong>Review summaries and evidence</strong>
+              <small>Use case detail pages for timeline, linked tasks, artifacts, and case-scoped runs.</small>
+            </a>
+            <a class="card action-card" href="/approvals">
+              <span class="label">Approvals</span>
+              <strong>Resolve human-in-the-loop holds</strong>
+              <small>Approve, reject, or cancel sensitive task transitions without leaving the portal.</small>
+            </a>
+            <a class="card action-card" href="/playbooks">
+              <span class="label">Playbooks</span>
+              <strong>Queue response workflows</strong>
+              <small>Launch disk-backed playbooks and review durable run history.</small>
+            </a>
+          </div>
+          <div class="card top-gap">
+            <div class="section-heading compact-heading">
+              <div>
+                <div class="eyebrow small-eyebrow">Alert intake</div>
+                <h3>Create a case from an alert</h3>
+              </div>
+            </div>
+            <form method="post" action="/cases/intake" enctype="multipart/form-data" class="stacked-form">
+              <label>Alert title<input type="text" name="title" placeholder="Suspicious login burst"></label>
+              <label>Summary<textarea name="summary" rows="4" placeholder="What happened, where it came from, and why it matters."></textarea></label>
+              <div class="cards two-up compact-stat-grid">
+                <label>Severity
+                  <select name="severity">
+                    <option value="critical">critical</option>
+                    <option value="high">high</option>
+                    <option value="medium" selected>medium</option>
+                    <option value="low">low</option>
+                  </select>
+                </label>
+                <label>Case type<input type="text" name="case_type" value="alert-triage"></label>
+              </div>
+              <div class="cards two-up compact-stat-grid">
+                <label>Source<input type="text" name="source" value="alert-intake"></label>
+                <label>Assignee<input type="text" name="assignee" placeholder="analyst"></label>
+              </div>
+              <label>Tags<input type="text" name="tags" placeholder="identity, phishing, vpn"></label>
+              <label>Queue playbook
+                <select name="playbook_key">
+                  <option value="">No playbook yet</option>
+                  {% for playbook in playbook_catalog %}
+                  <option value="{{ playbook.key }}">{{ playbook.title }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <div class="cards three-up compact-stat-grid">
+                <label>Artifact type<input type="text" name="artifact_type" value="indicator"></label>
+                <label>Artifact label<input type="text" name="artifact_label" placeholder="Account name"></label>
+                <label>Artifact source<input type="text" name="artifact_source" value="alert-intake"></label>
+              </div>
+              <label>Artifact value<textarea name="artifact_value" rows="3" placeholder="user@example.com or suspicious hash"></textarea></label>
+              <label>Artifact source reference<input type="text" name="artifact_source_ref" placeholder="alert:12345"></label>
+              <label>Evidence files<input type="file" name="files" multiple></label>
+              <button type="submit">Create case intake</button>
+            </form>
+          </div>
+          <div class="top-gap">
+            <p class="muted small">This portable build keeps response workflows, evidence, and operator decisions in one portal workspace without depending on private environment-specific services.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {% elif active_page == 'approvals' %}
+    <section class="panel cyber-panel">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">Human-in-the-loop controls</div>
+          <h2>Approvals queue</h2>
+          <p class="muted small">Resolve sensitive task transitions without losing case context. Approved tasks can be resumed from the task board or case detail page.</p>
+        </div>
+      </div>
+      <div class="cards stacked-cards">
+        {% for approval in approvals_queue %}
+        <article class="card">
+          <div class="card-split">
+            <div>
+              <span class="label">{{ approval.status }}</span>
+              <h3>{{ approval.task_title or approval.action }}</h3>
+              <p class="muted small">Approval #{{ approval.id }} · task #{{ approval.task_id }}{% if approval.case_title %} · case {{ approval.case_title }}{% endif %}</p>
+            </div>
+            <div class="muted tiny">{{ approval.created_at|pretty_dt }}</div>
+          </div>
+          <p class="muted small top-gap">{{ approval.reason }}</p>
+          <p class="muted tiny">Requested by {{ approval.requested_by }}{% if approval.decided_by %} · decided by {{ approval.decided_by }}{% endif %}</p>
+          {% if approval.status == 'pending' %}
+          <form method="post" action="/approvals/{{ approval.id }}/decision" class="stacked-form top-gap">
+            <label>Decision
+              <select name="decision">
+                <option value="approved">approved</option>
+                <option value="rejected">rejected</option>
+                <option value="cancelled">cancelled</option>
+              </select>
+            </label>
+            <label>Decision note<textarea name="note" rows="3" placeholder="Why this transition is being approved or rejected."></textarea></label>
+            <div class="button-row">
+              <button type="submit">Resolve approval</button>
+              <a class="secondary pill-link" href="/tasks#task-{{ approval.task_id }}">Open task</a>
+              {% if approval.case_id %}<a class="secondary pill-link" href="/cases/{{ approval.case_id }}">Open case</a>{% endif %}
+            </div>
+          </form>
+          {% else %}
+          <p class="muted tiny top-gap">Decision note: {{ approval.decision_note or 'none recorded' }}{% if approval.decided_at %} · {{ approval.decided_at|pretty_dt }}{% endif %}</p>
+          {% endif %}
+        </article>
+        {% else %}
+        <article class="card"><p class="muted">No approvals have been requested yet.</p></article>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% elif active_page == 'cases' %}
+    <section class="panel cyber-panel">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">SOAR cases</div>
+          <h2>Case workspace</h2>
+          <p class="muted small">Track active cases, review the latest timeline event, and keep suggested playbooks close to the evidence trail.</p>
+        </div>
+      </div>
+
+      <div class="grid two-col gap-lg">
+        <div class="card">
+          <div class="section-heading compact-heading">
+            <div>
+              <div class="eyebrow small-eyebrow">Open cases</div>
+              <h3>Case summaries</h3>
+            </div>
+          </div>
+          <div class="workflow-focus-list compact-home-focus">
+            {% for case in cases %}
+            <a class="workflow-focus-item" href="/cases/{{ case.id }}">
+              <span class="workflow-focus-id">#{{ case.id }}</span>
+              <span class="workflow-focus-body">
+                <strong>{{ case.title }}</strong>
+                <small>{{ case.case_type }} · {{ case.severity }} · {{ case.status }}</small>
+                {% if case.latest_event %}<small>{{ case.latest_event.detail }}</small>{% endif %}
+              </span>
+            </a>
+            {% else %}
+            <div class="workflow-focus-item empty-focus"><span class="workflow-focus-id">0</span><span class="workflow-focus-body"><strong>No cases yet.</strong><small>Create a case from the workflow slices when intake needs structured tracking.</small></span></div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="card">
+          {% if selected_case %}
+          <div class="section-heading compact-heading">
+            <div>
+              <div class="eyebrow small-eyebrow">Selected case</div>
+              <h3>{{ selected_case.title }}</h3>
+            </div>
+            <span class="pill">{{ selected_case.status }}</span>
+          </div>
+          <p class="muted small">{{ selected_case.summary }}</p>
+          <div class="cards two-up compact-stat-grid top-gap">
+            <article class="stat-card mini-stat"><span class="label">Severity</span><strong>{{ selected_case.severity }}</strong><small>{{ selected_case.case_type }}</small></article>
+            <article class="stat-card mini-stat"><span class="label">Requested by</span><strong>{{ selected_case.requested_by }}</strong><small>{{ selected_case.source }}</small></article>
+          </div>
+
+          <div class="top-gap">
+            <div class="section-heading compact-heading">
+              <div>
+                <div class="eyebrow small-eyebrow">Timeline</div>
+                <h3>Case timeline</h3>
+              </div>
+            </div>
+            <ul class="simple-list compact-simple-list">
+              {% for event in selected_case.timeline %}
+              <li>
+                <span>
+                  <strong>{{ event.event_type }}</strong>
+                  <small>{{ event.actor }} · {{ event.created_at|pretty_dt }}</small>
+                  <small>{{ event.detail }}</small>
+                </span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+
+          <div class="top-gap">
+            <div class="section-heading compact-heading">
+              <div>
+                <div class="eyebrow small-eyebrow">Tasks</div>
+                <h3>Linked tasks</h3>
+              </div>
+            </div>
+            <div class="workflow-focus-list compact-home-focus">
+              {% for task in selected_case_tasks %}
+              <div class="workflow-focus-item linked-task-card">
+                <a class="workflow-focus-item linked-task-open" href="/tasks#task-{{ task.id }}">
+                  <span class="workflow-focus-id">#{{ task.id }}</span>
+                  <span class="workflow-focus-body">
+                    <strong>{{ task.title }}</strong>
+                    <small>{{ task.status }} · {{ task.assignee or 'unassigned' }}</small>
+                    <small>{{ task.task_type }}{% if task.research_workflow %} · {{ task.research_workflow }}{% endif %}</small>
+                  </span>
+                </a>
+                <div class="button-row top-gap compact-actions">
+                  <form method="post" action="/cases/{{ selected_case.id }}/tasks/{{ task.id }}/move">
+                    <input type="hidden" name="status" value="blocked">
+                    <button type="submit" class="secondary small-button">Block</button>
+                  </form>
+                  <form method="post" action="/cases/{{ selected_case.id }}/tasks/{{ task.id }}/move">
+                    <input type="hidden" name="status" value="in_progress">
+                    <button type="submit" class="secondary small-button">Resume</button>
+                  </form>
+                </div>
+                <form method="post" action="/cases/{{ selected_case.id }}/tasks/{{ task.id }}/comments" class="top-gap">
+                  <label>Add case note
+                    <input type="text" name="comment" placeholder="Add a case-scoped task note">
+                  </label>
+                  <button type="submit" class="secondary small-button top-gap">Add comment</button>
+                </form>
+              </div>
+              {% else %}
+              <div class="workflow-focus-item empty-focus"><span class="workflow-focus-id">0</span><span class="workflow-focus-body"><strong>No linked tasks yet.</strong><small>Create or link a task to keep case execution visible here.</small></span></div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="top-gap">
+            <div class="section-heading compact-heading">
+              <div>
+                <div class="eyebrow small-eyebrow">Artifacts</div>
+                <h3>Case evidence and observables</h3>
+              </div>
+            </div>
+            <div class="cards stacked-cards">
+              {% for artifact in selected_case_artifacts %}
+              <article class="card">
+                <div class="card-split">
+                  <div>
+                    <span class="label">{{ artifact.artifact_type }}</span>
+                    <strong>{{ artifact.label }}</strong>
+                    <small>{{ artifact.value }}</small>
+                    {% if artifact.source or artifact.source_ref %}<small>{{ artifact.source }}{% if artifact.source_ref %} · {{ artifact.source_ref }}{% endif %}</small>{% endif %}
+                  </div>
+                  <div class="muted tiny">{{ artifact.created_at|pretty_dt }}</div>
+                </div>
+              </article>
+              {% else %}
+              <article class="card"><p class="muted">No artifacts have been recorded for this case yet.</p></article>
+              {% endfor %}
+            </div>
+            <form method="post" action="/cases/{{ selected_case.id }}/artifacts" enctype="multipart/form-data" class="stacked-form top-gap">
+              <div class="cards three-up compact-stat-grid">
+                <label>Artifact type<input type="text" name="artifact_type" value="evidence"></label>
+                <label>Label<input type="text" name="label" placeholder="Suspicious hash"></label>
+                <label>Source<input type="text" name="source" value="portal"></label>
+              </div>
+              <label>Value<textarea name="value" rows="3" placeholder="observable, path, URL, or analyst note"></textarea></label>
+              <label>Source reference<input type="text" name="source_ref" placeholder="ticket, alert ID, path"></label>
+              <label>Upload files<input type="file" name="files" multiple></label>
+              <button type="submit" class="secondary small-button">Add artifacts</button>
+            </form>
+          </div>
+
+          <div class="top-gap">
+            <div class="section-heading compact-heading">
+              <div>
+                <div class="eyebrow small-eyebrow">Runs</div>
+                <h3>Case runs</h3>
+              </div>
+            </div>
+            <div class="cards stacked-cards">
+              {% for run in selected_case_runs %}
+              <article class="card">
+                <div class="card-split">
+                  <div>
+                    <span class="label">{{ run.status }}</span>
+                    <strong>Workflow run #{{ run.id }}</strong>
+                    <small>{{ run.playbook_title }}</small>
+                    {% if run.input_data.task_id %}
+                    <small>task context #{{ run.input_data.task_id }} · {{ run.input_data.task_title }}</small>
+                    {% endif %}
+                  </div>
+                  <div class="muted tiny">{{ run.created_at|pretty_dt }}</div>
+                </div>
+                <form method="post" action="/cases/{{ selected_case.id }}/runs/{{ run.id }}/status" class="stacked-form top-gap compact-actions">
+                  <label>Run status
+                    <select name="status">
+                      {% for option in workflow_run_status_options %}
+                      <option value="{{ option.key }}" {% if option.key == run.status %}selected{% endif %}>{{ option.label }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <button type="submit" class="secondary small-button">Update run status</button>
+                </form>
+                <ul class="simple-list compact-simple-list top-gap">
+                  {% for step in run.steps %}
+                  <li><span><strong>{{ step.step_id }}</strong><small>{{ step.action }} · {{ step.status }}</small></span></li>
+                  {% endfor %}
+                </ul>
+              </article>
+              {% else %}
+              <article class="card"><p class="muted">No workflow runs have been queued for this case yet.</p></article>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="top-gap">
+            <div class="section-heading compact-heading">
+              <div>
+                <div class="eyebrow small-eyebrow">Playbook context</div>
+                <h3>Suggested playbooks</h3>
+              </div>
+            </div>
+            <div class="cards two-up">
+              {% for playbook in selected_case_playbooks %}
+              <article class="card">
+                <span class="label">{{ playbook.scope }} · {{ playbook.trigger }}</span>
+                <strong>{{ playbook.title }}</strong>
+                <small>{{ playbook.description }}</small>
+                <ul class="simple-list compact-simple-list top-gap">
+                  {% for step in playbook.steps %}
+                  <li><span><strong>{{ step.id }}</strong><small>{{ step.action }}</small></span></li>
+                  {% endfor %}
+                </ul>
+                <form method="post" action="/cases/{{ selected_case.id }}/playbooks/launch" class="stacked-form top-gap">
+                  <input type="hidden" name="playbook_key" value="{{ playbook.key }}">
+                  <label>Task context
+                    <select name="task_id">
+                      <option value="0">No linked task context</option>
+                      {% for task in selected_case_tasks %}
+                      <option value="{{ task.id }}">#{{ task.id }} · {{ task.title }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <button type="submit" class="secondary small-button">Queue for this case</button>
+                </form>
+              </article>
+              {% endfor %}
+            </div>
+          </div>
+          {% else %}
+          <p class="muted">Select a case to review its summary, timeline, and matching playbooks.</p>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    {% elif active_page == 'playbooks' %}
+    <section class="grid two-col gap-lg">
+      <div class="panel cyber-panel">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow">Workflow registry</div>
+            <h2>Playbook catalog</h2>
+            <p class="muted small">Starter playbooks loaded from disk for case-driven analyst workflows.</p>
+          </div>
+        </div>
+        <div class="cards stacked-cards">
+          {% for playbook in playbook_catalog %}
+          <article class="card">
+            <span class="label">{{ playbook.scope }} · {{ playbook.trigger }}</span>
+            <h3>{{ playbook.title }}</h3>
+            <p class="muted small">{{ playbook.description }}</p>
+            <p class="tiny top-gap"><strong>{{ playbook.steps|length }} steps</strong> · key {{ playbook.key }}</p>
+            <ul class="simple-list compact-simple-list top-gap">
+              {% for step in playbook.steps %}
+              <li><span><strong>{{ step.id }}</strong><small>{{ step.action }}</small></span></li>
+              {% endfor %}
+            </ul>
+          </article>
+          {% else %}
+          <article class="card"><p class="muted">No playbooks were found on disk.</p></article>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="panel cyber-panel">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow">Operator actions</div>
+            <h2>Launch playbook</h2>
+            <p class="muted small">Queue a playbook run and attach it to a case when needed.</p>
+          </div>
+        </div>
+        <form method="post" action="/playbooks/launch" class="stacked-form">
+          <label>Playbook
+            <select name="playbook_key" required>
+              {% for playbook in playbook_catalog %}
+              <option value="{{ playbook.key }}">{{ playbook.title }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Linked case
+            <select name="case_id">
+              <option value="0">No linked case</option>
+              {% for case in cases %}
+              <option value="{{ case.id }}">{{ case.title }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button type="submit">Queue playbook run</button>
+        </form>
+
+        <div class="section-heading top-gap">
+          <div>
+            <div class="eyebrow">Execution</div>
+            <h2>Run history</h2>
+          </div>
+        </div>
+        <div class="cards stacked-cards">
+          {% for run in playbook_runs %}
+          <article class="card">
+            <div class="card-split">
+              <div>
+                <span class="label">{{ run.status }}</span>
+                <h3>{{ run.playbook_title }}</h3>
+                <p class="muted small">Requested by {{ run.requested_by }}{% if run.case_title %} · linked case {{ run.case_title }}{% endif %}</p>
+              </div>
+              <div class="muted tiny">{{ run.created_at|pretty_dt }}</div>
+            </div>
+            <ul class="simple-list compact-simple-list top-gap">
+              {% for step in run.steps %}
+              <li><span><strong>{{ step.step_id }}</strong><small>{{ step.action }} · {{ step.status }}</small></span></li>
+              {% endfor %}
+            </ul>
+          </article>
+          {% else %}
+          <article class="card"><p class="muted">No playbook runs have been queued yet.</p></article>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
     {% elif active_page == 'security' %}
     <section class="panel cyber-panel">
       <div class="section-heading">

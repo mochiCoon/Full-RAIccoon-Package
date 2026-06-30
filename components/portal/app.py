@@ -39,6 +39,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from starlette.middleware.sessions import SessionMiddleware
 from svglib.svglib import svg2rlg
+from portal.services import workflow_engine, workflow_registry
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -105,6 +106,7 @@ OPEN_PREFIXES = ("/static/",)
 PORTAL_TASK_STATUSES = ("todo", "in_progress", "blocked", "in_review", "accepted", "rejected")
 PORTAL_TASK_BOARD_STATUSES = ("todo", "in_progress", "blocked", "in_review", "accepted")
 REPORT_AUTO_PUBLISH_MIN_SCORE = 90
+APPROVAL_STATUSES = ("pending", "approved", "rejected", "cancelled")
 PORTAL_TASK_LABELS = {
     "todo": "Todo",
     "in_progress": "In Progress",
@@ -194,6 +196,10 @@ PAGE_TITLES = {
     "works": "Published works tracker",
     "clients": "Private client readiness",
     "tasks": "Tasks board",
+    "soar": "SOAR command center",
+    "cases": "Case workspace",
+    "playbooks": "Playbook catalog",
+    "approvals": "Approvals queue",
     "deploy": "Deployment artifacts",
 }
 NAV_ITEMS = [
@@ -206,12 +212,20 @@ NAV_ITEMS = [
     {"key": "works", "label": "Published Works", "path": "/works"},
     {"key": "clients", "label": "Clients", "path": "/clients"},
     {"key": "tasks", "label": "Tasks", "path": "/tasks"},
+    {"key": "soar", "label": "SOAR", "path": "/soar"},
+    {"key": "cases", "label": "Cases", "path": "/cases"},
+    {"key": "playbooks", "label": "Playbooks", "path": "/playbooks"},
+    {"key": "approvals", "label": "Approvals", "path": "/approvals"},
     {"key": "deploy", "label": "Deployment", "path": "/deploy"},
 ]
 NAV_GROUPS = [
     {
         "label": "Command",
-        "items": ["dashboard", "tasks", "research", "chat"],
+        "items": ["dashboard", "tasks", "research", "chat", "soar"],
+    },
+    {
+        "label": "Response",
+        "items": ["cases", "playbooks", "approvals"],
     },
     {
         "label": "Delivery",
@@ -569,6 +583,87 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT DEFAULT ''
             );
+
+
+            CREATE TABLE IF NOT EXISTS cases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                summary TEXT DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'open',
+                severity TEXT NOT NULL DEFAULT 'medium',
+                case_type TEXT NOT NULL DEFAULT 'general',
+                source TEXT DEFAULT '',
+                requested_by TEXT DEFAULT '',
+                assignee TEXT DEFAULT '',
+                tags TEXT DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS case_artifacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_id INTEGER NOT NULL,
+                artifact_type TEXT NOT NULL,
+                label TEXT NOT NULL,
+                value TEXT DEFAULT '',
+                source TEXT DEFAULT '',
+                source_ref TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(case_id) REFERENCES cases(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS case_timeline (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_id INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                detail TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'portal',
+                source_ref TEXT DEFAULT '',
+                metadata TEXT DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(case_id) REFERENCES cases(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS task_approvals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                reason TEXT NOT NULL DEFAULT '',
+                requested_by TEXT NOT NULL DEFAULT '',
+                decided_by TEXT NOT NULL DEFAULT '',
+                decision_note TEXT NOT NULL DEFAULT '',
+                metadata TEXT DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                decided_at TEXT DEFAULT '',
+                FOREIGN KEY(task_id) REFERENCES portal_tasks(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS workflow_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                playbook_key TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                trigger_type TEXT NOT NULL DEFAULT 'manual',
+                requested_by TEXT NOT NULL DEFAULT '',
+                case_id INTEGER NOT NULL DEFAULT 0,
+                input_data TEXT DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(case_id) REFERENCES cases(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS workflow_run_steps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                step_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                output_data TEXT DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(run_id) REFERENCES workflow_runs(id)
+            );
             """
         )
 
@@ -616,6 +711,7 @@ def init_db() -> None:
         ensure_column(connection, "portal_tasks", "started_at", "TEXT DEFAULT ''")
         ensure_column(connection, "portal_tasks", "blocked_reason", "TEXT DEFAULT ''")
         ensure_column(connection, "portal_tasks", "blocked_at", "TEXT DEFAULT ''")
+        ensure_column(connection, "portal_tasks", "case_id", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(connection, "portal_tasks", "parent_task_id", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(connection, "portal_tasks", "acceptance_criteria", "TEXT DEFAULT ''")
         ensure_column(connection, "portal_task_comments", "source", "TEXT NOT NULL DEFAULT 'portal'")
@@ -4263,6 +4359,678 @@ def fetch_task_history(task_id: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def fetch_case_tasks(case_id: int, limit: int = 25) -> list[dict]:
+    rows = fetch_all(
+        "SELECT * FROM portal_tasks WHERE case_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?",
+        [int(case_id), int(limit)],
+    )
+    return [dict(row) for row in rows]
+
+
+def fetch_case_task(case_id: int, task_id: int) -> sqlite3.Row | None:
+    task = fetch_portal_task(task_id)
+    if not task:
+        return None
+    if int(task["case_id"] or 0) != int(case_id):
+        return None
+    return task
+
+
+def load_json_array(raw: str) -> list:
+    try:
+        parsed = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def load_json_object(raw: str) -> dict:
+    try:
+        parsed = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def normalize_approval_status(value: str) -> str:
+    normalized = (value or "pending").strip().lower()
+    return normalized if normalized in APPROVAL_STATUSES else "pending"
+
+
+def fetch_pending_approvals(limit: int = 10) -> list[dict]:
+    rows = fetch_all(
+        """
+        SELECT
+            approvals.id,
+            approvals.task_id,
+            approvals.action,
+            approvals.status,
+            approvals.reason,
+            approvals.requested_by,
+            approvals.decided_by,
+            approvals.decision_note,
+            approvals.metadata,
+            approvals.created_at,
+            approvals.decided_at,
+            tasks.title AS task_title,
+            tasks.case_id AS case_id,
+            cases.title AS case_title
+        FROM task_approvals AS approvals
+        LEFT JOIN portal_tasks AS tasks ON tasks.id = approvals.task_id
+        LEFT JOIN cases ON cases.id = tasks.case_id
+        WHERE approvals.status = 'pending'
+        ORDER BY approvals.id DESC
+        LIMIT ?
+        """,
+        [int(limit)],
+    )
+    approvals = []
+    for row in rows:
+        item = dict(row)
+        item["metadata"] = load_json_object(item.get("metadata", "{}"))
+        approvals.append(item)
+    return approvals
+
+
+def fetch_approvals(*, status: str = "", limit: int = 50) -> list[dict]:
+    normalized_status = (status or "").strip().lower()
+    params: list[object] = []
+    query = """
+        SELECT
+            approvals.id,
+            approvals.task_id,
+            approvals.action,
+            approvals.status,
+            approvals.reason,
+            approvals.requested_by,
+            approvals.decided_by,
+            approvals.decision_note,
+            approvals.metadata,
+            approvals.created_at,
+            approvals.decided_at,
+            tasks.title AS task_title,
+            tasks.case_id AS case_id,
+            cases.title AS case_title
+        FROM task_approvals AS approvals
+        LEFT JOIN portal_tasks AS tasks ON tasks.id = approvals.task_id
+        LEFT JOIN cases ON cases.id = tasks.case_id
+    """
+    if normalized_status:
+        query += " WHERE lower(trim(approvals.status)) = ?"
+        params.append(normalized_status)
+    query += " ORDER BY CASE WHEN approvals.status = 'pending' THEN 0 ELSE 1 END, approvals.id DESC LIMIT ?"
+    params.append(int(limit))
+    rows = fetch_all(query, params)
+    approvals = []
+    for row in rows:
+        item = dict(row)
+        item["metadata"] = load_json_object(item.get("metadata", "{}"))
+        approvals.append(item)
+    return approvals
+
+
+def fetch_approval(approval_id: int) -> dict | None:
+    row = fetch_one(
+        """
+        SELECT
+            approvals.id,
+            approvals.task_id,
+            approvals.action,
+            approvals.status,
+            approvals.reason,
+            approvals.requested_by,
+            approvals.decided_by,
+            approvals.decision_note,
+            approvals.metadata,
+            approvals.created_at,
+            approvals.decided_at,
+            tasks.title AS task_title,
+            tasks.case_id AS case_id,
+            cases.title AS case_title
+        FROM task_approvals AS approvals
+        LEFT JOIN portal_tasks AS tasks ON tasks.id = approvals.task_id
+        LEFT JOIN cases ON cases.id = tasks.case_id
+        WHERE approvals.id = ?
+        """,
+        [int(approval_id)],
+    )
+    if not row:
+        return None
+    item = dict(row)
+    item["metadata"] = load_json_object(item.get("metadata", "{}"))
+    return item
+
+
+def decide_task_approval(approval_id: int, decision: str, actor: str, note: str = "") -> dict:
+    normalized_decision = normalize_approval_status(decision)
+    if normalized_decision not in {"approved", "rejected", "cancelled"}:
+        raise RuntimeError("Approval decisions must be approved, rejected, or cancelled.")
+    approval_row = fetch_one("SELECT * FROM task_approvals WHERE id = ?", [approval_id])
+    if not approval_row:
+        raise RuntimeError("Approval not found.")
+    current_status = normalize_approval_status(approval_row["status"])
+    if current_status != "pending":
+        raise RuntimeError(f"Approval already resolved as {current_status}.")
+    stamp = now_utc().isoformat()
+    normalized_actor = (actor or "system").strip() or "system"
+    normalized_note = (note or "").strip()
+    execute(
+        "UPDATE task_approvals SET status = ?, decided_by = ?, decision_note = ?, decided_at = ? WHERE id = ?",
+        [normalized_decision, normalized_actor, normalized_note, stamp, approval_id],
+    )
+    resolved = fetch_one("SELECT * FROM task_approvals WHERE id = ?", [approval_id])
+    item = dict(resolved)
+    item["metadata"] = load_json_object(item.get("metadata", "{}"))
+    return item
+
+
+def add_case_timeline_event(
+    case_id: int,
+    event_type: str,
+    actor: str,
+    detail: str,
+    *,
+    source: str = "portal",
+    source_ref: str = "",
+    metadata: dict | None = None,
+) -> None:
+    execute(
+        "INSERT INTO case_timeline (case_id, event_type, actor, detail, source, source_ref, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            int(case_id),
+            (event_type or "note").strip(),
+            (actor or "system").strip() or "system",
+            (detail or "").strip(),
+            (source or "portal").strip() or "portal",
+            (source_ref or "").strip(),
+            json.dumps(metadata or {}, sort_keys=True),
+            now_utc().isoformat(),
+        ],
+    )
+
+
+def fetch_case_timeline(case_id: int) -> list[dict]:
+    rows = fetch_all(
+        "SELECT id, case_id, event_type, actor, detail, source, source_ref, metadata, created_at FROM case_timeline WHERE case_id = ? ORDER BY id DESC",
+        [case_id],
+    )
+    timeline = []
+    for row in rows:
+        item = dict(row)
+        item["metadata"] = load_json_object(item.get("metadata", "{}"))
+        timeline.append(item)
+    return timeline
+
+
+def get_case(case_id: int) -> dict | None:
+    row = fetch_one("SELECT * FROM cases WHERE id = ?", [case_id])
+    if not row:
+        return None
+    case = dict(row)
+    case["tags"] = load_json_array(case.get("tags", "[]"))
+    case["timeline"] = fetch_case_timeline(int(case["id"]))
+    return case
+
+
+def create_case(
+    title: str,
+    summary: str,
+    requested_by: str,
+    *,
+    case_type: str = "general",
+    severity: str = "medium",
+    source: str = "portal",
+    assignee: str = "",
+    status: str = "open",
+    tags: list[str] | None = None,
+) -> int:
+    stamp = now_utc().isoformat()
+    normalized_title = (title or "").strip()
+    normalized_summary = (summary or "").strip()
+    normalized_requested_by = (requested_by or "system").strip() or "system"
+    normalized_assignee = normalize_task_assignee(assignee, normalized_requested_by)
+    normalized_case_type = (case_type or "general").strip() or "general"
+    normalized_severity = (severity or "medium").strip() or "medium"
+    normalized_source = (source or "portal").strip() or "portal"
+    normalized_status = (status or "open").strip() or "open"
+    normalized_tags = [str(tag).strip() for tag in (tags or []) if str(tag).strip()]
+    with closing(connect_db()) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO cases (
+                title, summary, status, severity, case_type, source,
+                requested_by, assignee, tags, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                normalized_title,
+                normalized_summary,
+                normalized_status,
+                normalized_severity,
+                normalized_case_type,
+                normalized_source,
+                normalized_requested_by,
+                normalized_assignee,
+                json.dumps(normalized_tags),
+                stamp,
+                stamp,
+            ],
+        )
+        case_id = int(cursor.lastrowid)
+        connection.commit()
+    add_case_timeline_event(
+        case_id,
+        "created",
+        normalized_requested_by,
+        f"Case created: {normalized_title}",
+        source=normalized_source,
+        metadata={"status": normalized_status, "severity": normalized_severity},
+    )
+    return case_id
+
+
+def list_cases(limit: int = 100) -> list[dict]:
+    rows = fetch_all(
+        "SELECT id FROM cases ORDER BY updated_at DESC, id DESC LIMIT ?",
+        [limit],
+    )
+    catalog: list[dict] = []
+    for row in rows:
+        case = get_case(int(row["id"]))
+        if not case:
+            continue
+        timeline = case.get("timeline", [])
+        item = dict(case)
+        item["latest_event"] = timeline[0] if timeline else None
+        catalog.append(item)
+    return catalog
+
+
+def list_playbook_catalog() -> list[dict]:
+    return workflow_registry.list_playbook_definitions()
+
+
+def playbook_definition_by_key(playbook_key: str) -> dict | None:
+    for playbook in list_playbook_catalog():
+        if str(playbook.get("key") or "") == str(playbook_key or ""):
+            return playbook
+    return None
+
+
+def fetch_workflow_run_steps(run_id: int) -> list[dict]:
+    return workflow_engine.fetch_workflow_run_steps(
+        run_id,
+        fetch_all=fetch_all,
+        load_json_object=load_json_object,
+    )
+
+
+def fetch_workflow_runs(limit: int = 20, *, statuses: list[str] | tuple[str, ...] | None = None) -> list[dict]:
+    return workflow_engine.fetch_workflow_runs(
+        limit=limit,
+        fetch_all=fetch_all,
+        list_cases=list_cases,
+        load_json_object=load_json_object,
+        playbook_definition_by_key=playbook_definition_by_key,
+        fetch_workflow_run_steps_fn=fetch_workflow_run_steps,
+        statuses=statuses,
+    )
+
+
+def fetch_case_artifacts(case_id: int, limit: int = 100) -> list[dict]:
+    rows = fetch_all(
+        """
+        SELECT id, case_id, artifact_type, label, value, source, source_ref, created_at
+        FROM case_artifacts
+        WHERE case_id = ?
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        [int(case_id), int(limit)],
+    )
+    return [dict(row) for row in rows]
+
+
+def create_case_artifact(
+    case_id: int,
+    artifact_type: str,
+    label: str,
+    value: str,
+    *,
+    source: str = "portal",
+    source_ref: str = "",
+    actor: str = "system",
+) -> int:
+    case = get_case(case_id)
+    if not case:
+        raise RuntimeError("Case not found for artifact attachment.")
+    normalized_artifact_type = (artifact_type or "evidence").strip() or "evidence"
+    normalized_label = (label or value or normalized_artifact_type).strip()
+    normalized_value = (value or "").strip()
+    normalized_source = (source or "portal").strip() or "portal"
+    normalized_source_ref = (source_ref or "").strip()
+    stamp = now_utc().isoformat()
+    with closing(connect_db()) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO case_artifacts (case_id, artifact_type, label, value, source, source_ref, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                int(case_id),
+                normalized_artifact_type,
+                normalized_label,
+                normalized_value,
+                normalized_source,
+                normalized_source_ref,
+                stamp,
+            ],
+        )
+        artifact_id = int(cursor.lastrowid)
+        connection.commit()
+    add_case_timeline_event(
+        int(case_id),
+        "artifact_added",
+        (actor or "system").strip() or "system",
+        f"Added artifact {normalized_label} ({normalized_artifact_type}).",
+        source=normalized_source,
+        source_ref=normalized_source_ref or f"artifact:{artifact_id}",
+        metadata={"artifact_id": artifact_id, "artifact_type": normalized_artifact_type, "label": normalized_label},
+    )
+    return artifact_id
+
+
+def normalize_case_tags(raw_tags: str | list[str] | tuple[str, ...] | None) -> list[str]:
+    if isinstance(raw_tags, (list, tuple)):
+        return [str(tag).strip() for tag in raw_tags if str(tag).strip()]
+    if not raw_tags:
+        return []
+    return [part.strip() for part in re.split(r"[,\n]", str(raw_tags)) if part.strip()]
+
+
+def infer_case_tags(title: str, summary: str, workflow: str) -> list[str]:
+    corpus = f"{title} {summary} {workflow}".lower()
+    tags: list[str] = []
+    if workflow and workflow != "general":
+        tags.append(workflow)
+    for keyword in ("phishing", "malware", "ransomware", "credential", "powershell"):
+        if keyword in corpus and keyword not in tags:
+            tags.append(keyword)
+    return tags
+
+
+def build_case_summary_payload(case: dict) -> dict:
+    payload = {
+        "id": int(case["id"]),
+        "title": str(case.get("title") or ""),
+        "summary": str(case.get("summary") or ""),
+        "status": str(case.get("status") or ""),
+        "severity": str(case.get("severity") or ""),
+        "case_type": str(case.get("case_type") or ""),
+        "source": str(case.get("source") or ""),
+        "requested_by": str(case.get("requested_by") or ""),
+        "assignee": str(case.get("assignee") or ""),
+        "tags": list(case.get("tags") or []),
+        "created_at": str(case.get("created_at") or ""),
+        "updated_at": str(case.get("updated_at") or ""),
+    }
+    latest_event = case.get("latest_event")
+    if latest_event:
+        payload["latest_event"] = dict(latest_event)
+    return payload
+
+
+def build_case_detail_payload(case_id: int) -> dict:
+    case = get_case(case_id)
+    if not case:
+        raise ValueError("Case not found")
+    payload = build_case_summary_payload(case)
+    payload["timeline"] = list(case.get("timeline") or [])
+    payload["tasks"] = fetch_case_tasks(case_id)
+    payload["artifacts"] = fetch_case_artifacts(case_id)
+    payload["runs"] = fetch_case_workflow_runs(case_id)
+    return payload
+
+
+def queue_case_playbook(case_id: int, playbook_key: str, actor: str, *, task: sqlite3.Row | dict | None = None) -> dict:
+    playbook = playbook_definition_by_key(playbook_key)
+    if not playbook:
+        raise ValueError("Playbook not found.")
+    input_data: dict[str, object] = {}
+    if task:
+        input_data = {
+            "task_id": int(task["id"]),
+            "task_title": str(task["title"] or ""),
+        }
+    run_id = create_workflow_run(
+        playbook_key,
+        requested_by=actor,
+        case_id=int(case_id),
+        input_data=input_data,
+    )
+    detail = f"Queued playbook {playbook['title']} as workflow run #{run_id}."
+    if task:
+        detail = f"Queued playbook {playbook['title']} as workflow run #{run_id} for task #{int(task['id'])}: {task['title']}"
+    add_case_timeline_event(
+        int(case_id),
+        event_type="playbook_queued",
+        actor=actor,
+        detail=detail,
+        source="portal",
+        source_ref=f"workflow-run:{run_id}",
+        metadata={
+            "playbook_key": str(playbook.get("key") or ""),
+            "run_id": run_id,
+            "task_id": int(task["id"]) if task else 0,
+        },
+    )
+    return fetch_case_workflow_run(int(case_id), int(run_id)) or fetch_workflow_run(int(run_id)) or {"id": run_id}
+
+
+def create_case_intake(
+    *,
+    title: str,
+    summary: str,
+    requested_by: str,
+    case_type: str = "general",
+    severity: str = "medium",
+    source: str = "portal",
+    assignee: str = "",
+    tags: list[str] | None = None,
+    artifacts: list[dict] | None = None,
+    playbook_key: str = "",
+) -> dict:
+    normalized_title = (title or "").strip() or preview((summary or "Case intake").replace("\n", " "), 72)
+    normalized_summary = (summary or "").strip()
+    normalized_requested_by = (requested_by or "system").strip() or "system"
+    normalized_case_type = (case_type or "general").strip() or "general"
+    normalized_severity = (severity or "medium").strip() or "medium"
+    normalized_source = (source or "portal").strip() or "portal"
+    normalized_assignee = (assignee or "").strip()
+    case_id = create_case(
+        title=normalized_title,
+        summary=normalized_summary,
+        requested_by=normalized_requested_by,
+        case_type=normalized_case_type,
+        severity=normalized_severity,
+        source=normalized_source,
+        assignee=normalized_assignee,
+        tags=normalize_case_tags(tags),
+    )
+    created_artifact_ids: list[int] = []
+    for artifact in artifacts or []:
+        created_artifact_ids.append(
+            create_case_artifact(
+                case_id,
+                str(artifact.get("artifact_type") or "evidence"),
+                str(artifact.get("label") or artifact.get("value") or "artifact"),
+                str(artifact.get("value") or ""),
+                source=str(artifact.get("source") or normalized_source),
+                source_ref=str(artifact.get("source_ref") or ""),
+                actor=normalized_requested_by,
+            )
+        )
+    run = None
+    if (playbook_key or "").strip():
+        run = queue_case_playbook(case_id, playbook_key.strip(), normalized_requested_by)
+    return {
+        "case_id": case_id,
+        "case": get_case(case_id),
+        "artifacts": fetch_case_artifacts(case_id),
+        "artifact_ids": created_artifact_ids,
+        "run": run,
+    }
+
+
+def transition_case_workflow_run_status(case_id: int, run_id: int, normalized_status: str, actor: str, playbook_key: str = "") -> dict:
+    timeline_params = [
+        int(case_id),
+        "playbook_status",
+        (actor or "system").strip() or "system",
+        f"Workflow run #{run_id} moved to {normalized_status.replace('_', ' ').title()}.",
+        "portal",
+        f"workflow-run:{run_id}",
+        json.dumps({"run_id": int(run_id), "playbook_key": str(playbook_key or ""), "status": normalized_status}, sort_keys=True),
+        now_utc().isoformat(),
+    ]
+    with closing(connect_db()) as connection:
+        workflow_engine.transition_workflow_run(
+            run_id,
+            normalized_status,
+            execute=lambda query, params: connection.execute(query, params),
+            now_utc=now_utc,
+        )
+        connection.execute(
+            "INSERT INTO case_timeline (case_id, event_type, actor, detail, source, source_ref, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            timeline_params,
+        )
+        connection.commit()
+    return fetch_case_workflow_run(int(case_id), int(run_id)) or {"id": int(run_id), "status": normalized_status}
+
+
+def soar_summary() -> dict:
+    active_statuses = ("queued", "running", "waiting_approval", "blocked")
+    active_placeholders = ", ".join("?" for _ in active_statuses)
+    open_cases_row = fetch_one(
+        "SELECT COUNT(*) AS count FROM cases WHERE lower(trim(coalesce(status, ''))) != 'closed'"
+    )
+    active_runs_row = fetch_one(
+        f"SELECT COUNT(*) AS count FROM workflow_runs WHERE lower(trim(coalesce(status, ''))) IN ({active_placeholders})",
+        list(active_statuses),
+    )
+    pending_approvals_row = fetch_one("SELECT COUNT(*) AS count FROM task_approvals WHERE status = 'pending'")
+    playbook_count = len(list_playbook_catalog())
+    return {
+        "open_cases": int(open_cases_row["count"]) if open_cases_row else 0,
+        "active_runs": int(active_runs_row["count"]) if active_runs_row else 0,
+        "pending_approvals": int(pending_approvals_row["count"]) if pending_approvals_row else 0,
+        "playbook_count": int(playbook_count),
+    }
+
+
+def hydrate_workflow_run(row: sqlite3.Row | dict, *, case_title: str = "") -> dict:
+    item = dict(row)
+    item["input_data"] = load_json_object(item.get("input_data", "{}"))
+    definition = playbook_definition_by_key(item.get("playbook_key", ""))
+    item["playbook_title"] = str(definition.get("title")) if definition else str(item.get("playbook_key") or "")
+    item["case_title"] = case_title
+    if not item["case_title"]:
+        case_id = int(item.get("case_id") or 0)
+        case = get_case(case_id) if case_id else None
+        if case:
+            item["case_title"] = str(case.get("title") or "")
+    item["steps"] = fetch_workflow_run_steps(int(item["id"]))
+    return item
+
+
+def fetch_workflow_run(run_id: int) -> dict | None:
+    row = fetch_one(
+        "SELECT id, playbook_key, status, trigger_type, requested_by, case_id, input_data, created_at, updated_at FROM workflow_runs WHERE id = ?",
+        [int(run_id)],
+    )
+    if not row:
+        return None
+    return hydrate_workflow_run(row)
+
+
+def fetch_case_workflow_runs(case_id: int, limit: int = 10) -> list[dict]:
+    case = get_case(case_id)
+    case_title = str(case.get("title") or "") if case else ""
+    rows = fetch_all(
+        "SELECT id, playbook_key, status, trigger_type, requested_by, case_id, input_data, created_at, updated_at FROM workflow_runs WHERE case_id = ? ORDER BY id DESC LIMIT ?",
+        [int(case_id), int(limit)],
+    )
+    return [hydrate_workflow_run(row, case_title=case_title) for row in rows]
+
+
+def fetch_case_workflow_run(case_id: int, run_id: int) -> dict | None:
+    case = get_case(case_id)
+    case_title = str(case.get("title") or "") if case else ""
+    row = fetch_one(
+        "SELECT id, playbook_key, status, trigger_type, requested_by, case_id, input_data, created_at, updated_at FROM workflow_runs WHERE id = ? AND case_id = ?",
+        [int(run_id), int(case_id)],
+    )
+    if not row:
+        return None
+    return hydrate_workflow_run(row, case_title=case_title)
+
+
+def create_workflow_run(
+    playbook_key: str,
+    *,
+    requested_by: str,
+    case_id: int = 0,
+    trigger_type: str = "manual",
+    input_data: dict | None = None,
+) -> int:
+    return workflow_engine.create_workflow_run(
+        playbook_key,
+        requested_by=requested_by,
+        case_id=case_id,
+        trigger_type=trigger_type,
+        input_data=input_data,
+        playbook_definition_by_key=playbook_definition_by_key,
+        connect_db=connect_db,
+        now_utc=now_utc,
+    )
+
+
+def transition_workflow_run(run_id: int, status: str) -> None:
+    workflow_engine.transition_workflow_run(
+        run_id,
+        status,
+        execute=execute,
+        now_utc=now_utc,
+    )
+
+
+def related_playbooks_for_case(case: dict | None, catalog: list[dict] | None = None) -> list[dict]:
+    if not case:
+        return []
+    playbooks = list(catalog or list_playbook_catalog())
+    haystack = " ".join(
+        [
+            str(case.get("title") or ""),
+            str(case.get("summary") or ""),
+            str(case.get("case_type") or ""),
+            str(case.get("source") or ""),
+            " ".join(str(tag) for tag in (case.get("tags") or [])),
+        ]
+    ).lower()
+    matches: list[dict] = []
+    for playbook in playbooks:
+        signals = {
+            str(playbook.get("key") or "").replace("-", " ").lower(),
+            str(playbook.get("title") or "").lower(),
+            str(playbook.get("scope") or "").lower(),
+        }
+        if any(signal and signal in haystack for signal in signals):
+            matches.append(playbook)
+    if matches:
+        return matches[:3]
+    return playbooks[:3]
+
+
 def task_detail_maps(task_ids: list[int]) -> tuple[dict[int, list[dict]], dict[int, list[dict]]]:
     if not task_ids:
         return {}, {}
@@ -5213,6 +5981,7 @@ def render(
     message: str = "",
     error: str = "",
     selected_task_id: int | None = None,
+    selected_case_id: int | None = None,
 ) -> HTMLResponse:
     searches = fetch_all("SELECT * FROM searches ORDER BY id DESC LIMIT 20")
     research_tasks = fetch_research_tasks(limit=50)
@@ -5221,6 +5990,14 @@ def render(
     works = fetch_all("SELECT * FROM published_works ORDER BY COALESCE(NULLIF(due_date, ''), publication_date) ASC, id DESC LIMIT 100")
     document_categories = report_document_categories()
     sync_runs = fetch_all("SELECT * FROM cost_sync_runs ORDER BY id DESC LIMIT 20")
+    cases = list_cases(limit=50)
+    open_soar_cases = [case for case in cases if str(case.get("status") or "").strip().lower() != "closed"]
+    playbook_catalog = list_playbook_catalog()
+    playbook_runs = fetch_workflow_runs(limit=20)
+    soar_active_runs = fetch_workflow_runs(limit=20, statuses=["queued", "running", "waiting_approval", "blocked"])
+    selected_case = get_case(selected_case_id) if selected_case_id else None
+    if selected_case is None and active_page == "cases" and cases:
+        selected_case = cases[0]
     query_params = getattr(request, "query_params", {})
     board_filters = {key: query_params.get(key, "") for key in ("q", "status", "assignee", "workflow", "source", "kanban", "qa", "client", "stale")} if active_page == "tasks" else None
     board_payload = task_board_payload(selected_task_id if active_page == "tasks" else None, filters=board_filters)
@@ -5251,7 +6028,24 @@ def render(
         "nav_items": NAV_ITEMS,
         "nav_groups": NAV_GROUPS,
         "summary": dashboard_summary(),
+        "soar_summary": soar_summary(),
         "searches": searches,
+        "cases": cases,
+        "open_soar_cases": open_soar_cases,
+        "selected_case": selected_case,
+        "selected_case_tasks": fetch_case_tasks(int(selected_case["id"])) if selected_case else [],
+        "selected_case_artifacts": fetch_case_artifacts(int(selected_case["id"])) if selected_case else [],
+        "selected_case_runs": fetch_case_workflow_runs(int(selected_case["id"])) if selected_case else [],
+        "pending_approvals": fetch_pending_approvals(limit=10) if admin_authenticated(request) else [],
+        "approvals_queue": fetch_approvals(limit=50) if admin_authenticated(request) else [],
+        "workflow_run_status_options": [
+            {"key": status, "label": status.replace("_", " ").title()}
+            for status in ("queued", "running", "waiting_approval", "blocked", "failed", "completed", "cancelled")
+        ],
+        "selected_case_playbooks": related_playbooks_for_case(selected_case, playbook_catalog),
+        "playbook_catalog": playbook_catalog,
+        "playbook_runs": playbook_runs,
+        "soar_active_runs": soar_active_runs,
         "research_tasks": research_tasks,
         "chat_messages": chat_messages,
         "chat_pending": chat_has_pending_reply(),
@@ -5539,6 +6333,471 @@ def dashboard_page(request: Request):
     if guard:
         return guard
     return render(request, active_page="dashboard")
+
+
+@app.get("/soar", response_class=HTMLResponse)
+def soar_page(request: Request):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    return render(request, active_page="soar")
+
+
+@app.get("/approvals", response_class=HTMLResponse)
+def approvals_page(request: Request):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    if not admin_authenticated(request):
+        return render(request, active_page="soar", error="Administrator access is required to review approvals.")
+    return render(request, active_page="approvals")
+
+
+@app.get("/cases", response_class=HTMLResponse)
+def cases_page(request: Request):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    return render(request, active_page="cases")
+
+
+@app.get("/cases/{case_id}", response_class=HTMLResponse)
+def case_detail_page(request: Request, case_id: int):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    if not get_case(case_id):
+        raise HTTPException(status_code=404, detail="Case not found")
+    return render(request, active_page="cases", selected_case_id=case_id)
+
+
+@app.get("/playbooks", response_class=HTMLResponse)
+def playbooks_page(request: Request):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    return render(request, active_page="playbooks")
+
+
+@app.post("/playbooks/launch")
+def launch_playbook_route(
+    request: Request,
+    playbook_key: str = Form(...),
+    case_id: int = Form(0),
+):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    user = current_user(request)
+    actor = str(user.get("username") or user.get("display_name") or "system")
+    create_workflow_run(
+        playbook_key,
+        requested_by=actor,
+        case_id=int(case_id or 0),
+    )
+    return RedirectResponse("/playbooks", status_code=303)
+
+
+@app.post("/cases/{case_id}/playbooks/launch")
+def case_launch_playbook_route(
+    request: Request,
+    case_id: int,
+    playbook_key: str = Form(...),
+    task_id: int = Form(0),
+):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    case = get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    task = None
+    if int(task_id or 0):
+        task = fetch_case_task(case_id, int(task_id))
+        if not task:
+            return render(request, active_page="cases", selected_case_id=case_id, error="Task not found for this case.")
+    user = current_user(request)
+    actor = str(user.get("username") or user.get("display_name") or "system")
+    try:
+        queue_case_playbook(case_id, playbook_key, actor, task=task)
+    except ValueError as exc:
+        return render(request, active_page="cases", selected_case_id=case_id, error=str(exc))
+    return RedirectResponse(f"/cases/{case_id}", status_code=303)
+
+
+@app.post("/cases/intake", response_class=HTMLResponse)
+async def case_intake_route(
+    request: Request,
+    title: str = Form(default=""),
+    summary: str = Form(default=""),
+    severity: str = Form(default="medium"),
+    case_type: str = Form(default="general"),
+    source: str = Form(default="alert-intake"),
+    assignee: str = Form(default=""),
+    tags: str = Form(default=""),
+    playbook_key: str = Form(default=""),
+    artifact_type: str = Form(default="indicator"),
+    artifact_label: str = Form(default=""),
+    artifact_value: str = Form(default=""),
+    artifact_source: str = Form(default=""),
+    artifact_source_ref: str = Form(default=""),
+    files: list[UploadFile] = File(default=[]),
+):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    normalized_title = (title or "").strip()
+    normalized_summary = (summary or "").strip()
+    if not normalized_title and not normalized_summary:
+        return render(request, active_page="soar", error="Case title or summary is required for intake.")
+    normalized_source = (source or "alert-intake").strip() or "alert-intake"
+    normalized_tags = normalize_case_tags(tags)
+    if not normalized_tags:
+        normalized_tags = infer_case_tags(normalized_title, normalized_summary, case_type)
+    saved_paths = save_uploads(files)
+    artifacts: list[dict] = []
+    if (artifact_label or artifact_value).strip():
+        artifacts.append(
+            {
+                "artifact_type": (artifact_type or "indicator").strip() or "indicator",
+                "label": (artifact_label or artifact_value).strip(),
+                "value": (artifact_value or "").strip(),
+                "source": (artifact_source or normalized_source).strip() or normalized_source,
+                "source_ref": (artifact_source_ref or "").strip(),
+            }
+        )
+    for path in saved_paths:
+        artifacts.append(
+            {
+                "artifact_type": "file",
+                "label": Path(path).name,
+                "value": path,
+                "source": normalized_source,
+                "source_ref": path,
+            }
+        )
+    if playbook_key.strip() and not playbook_definition_by_key(playbook_key.strip()):
+        return render(request, active_page="soar", error="Playbook not found.")
+    user = current_user(request)
+    created = create_case_intake(
+        title=normalized_title,
+        summary=normalized_summary,
+        requested_by=str(user.get("username") or user.get("display_name") or "system"),
+        case_type=(case_type or "general").strip() or "general",
+        severity=(severity or "medium").strip() or "medium",
+        source=normalized_source,
+        assignee=assignee,
+        tags=normalized_tags,
+        artifacts=artifacts,
+        playbook_key=playbook_key.strip(),
+    )
+    return render(request, active_page="cases", selected_case_id=int(created["case_id"]), message="Case intake created.")
+
+
+@app.post("/cases/{case_id}/artifacts", response_class=HTMLResponse)
+async def case_artifact_route(
+    request: Request,
+    case_id: int,
+    artifact_type: str = Form(default="evidence"),
+    label: str = Form(default=""),
+    value: str = Form(default=""),
+    source: str = Form(default="portal"),
+    source_ref: str = Form(default=""),
+    files: list[UploadFile] = File(default=[]),
+):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    case = get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    user = current_user(request)
+    actor = str(user.get("username") or user.get("display_name") or "system")
+    normalized_source = (source or "portal").strip() or "portal"
+    created_count = 0
+    if (label or value).strip():
+        create_case_artifact(
+            case_id,
+            artifact_type,
+            label or value,
+            value,
+            source=normalized_source,
+            source_ref=source_ref,
+            actor=actor,
+        )
+        created_count += 1
+    saved_paths = save_uploads(files)
+    for path in saved_paths:
+        create_case_artifact(
+            case_id,
+            "file",
+            Path(path).name,
+            path,
+            source=normalized_source,
+            source_ref=path,
+            actor=actor,
+        )
+        created_count += 1
+    if created_count == 0:
+        return render(request, active_page="cases", selected_case_id=case_id, error="Add an artifact value or upload at least one file.")
+    return render(request, active_page="cases", selected_case_id=case_id, message=f"Added {created_count} artifact(s).")
+
+
+@app.get("/api/cases")
+def api_cases(request: Request):
+    if not authenticated(request):
+        return JSONResponse({"ok": False, "error": "Authentication required."}, status_code=401)
+    return JSONResponse({"ok": True, "cases": [build_case_summary_payload(case) for case in list_cases(limit=100)]})
+
+
+@app.get("/api/cases/{case_id}")
+def api_case_detail(request: Request, case_id: int):
+    if not authenticated(request):
+        return JSONResponse({"ok": False, "error": "Authentication required."}, status_code=401)
+    try:
+        return JSONResponse({"ok": True, "case": build_case_detail_payload(case_id)})
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=404)
+
+
+@app.post("/api/cases")
+async def api_create_case(request: Request):
+    if not authenticated(request):
+        return JSONResponse({"ok": False, "error": "Authentication required."}, status_code=401)
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON payload."}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"ok": False, "error": "Payload must be a JSON object."}, status_code=400)
+    title = str(payload.get("title") or "").strip()
+    summary = str(payload.get("summary") or "").strip()
+    if not title and not summary:
+        return JSONResponse({"ok": False, "error": "title or summary is required."}, status_code=400)
+    playbook_key = str(payload.get("playbook_key") or "").strip()
+    if playbook_key and not playbook_definition_by_key(playbook_key):
+        return JSONResponse({"ok": False, "error": "Playbook not found."}, status_code=404)
+    raw_artifacts = payload.get("artifacts") or []
+    if raw_artifacts and not isinstance(raw_artifacts, list):
+        return JSONResponse({"ok": False, "error": "artifacts must be a list."}, status_code=400)
+    artifacts = []
+    for artifact in raw_artifacts:
+        if isinstance(artifact, dict):
+            artifacts.append(
+                {
+                    "artifact_type": str(artifact.get("artifact_type") or "evidence"),
+                    "label": str(artifact.get("label") or artifact.get("value") or "artifact"),
+                    "value": str(artifact.get("value") or ""),
+                    "source": str(artifact.get("source") or payload.get("source") or "api"),
+                    "source_ref": str(artifact.get("source_ref") or ""),
+                }
+            )
+    user = current_user(request)
+    created = create_case_intake(
+        title=title,
+        summary=summary,
+        requested_by=str(user.get("username") or user.get("display_name") or "system"),
+        case_type=str(payload.get("case_type") or "general"),
+        severity=str(payload.get("severity") or "medium"),
+        source=str(payload.get("source") or "api"),
+        assignee=str(payload.get("assignee") or ""),
+        tags=normalize_case_tags(payload.get("tags")) or infer_case_tags(title, summary, str(payload.get("case_type") or "general")),
+        artifacts=artifacts,
+        playbook_key=playbook_key,
+    )
+    return JSONResponse({"ok": True, "case": build_case_detail_payload(int(created["case_id"])), "run": created["run"]}, status_code=201)
+
+
+@app.post("/api/playbooks/launch")
+async def api_launch_playbook(request: Request):
+    if not authenticated(request):
+        return JSONResponse({"ok": False, "error": "Authentication required."}, status_code=401)
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON payload."}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"ok": False, "error": "Payload must be a JSON object."}, status_code=400)
+    playbook_key = str(payload.get("playbook_key") or "").strip()
+    if not playbook_key:
+        return JSONResponse({"ok": False, "error": "playbook_key is required."}, status_code=400)
+    try:
+        case_id = int(payload.get("case_id") or 0)
+        task_id = int(payload.get("task_id") or 0)
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "case_id and task_id must be integers when provided."}, status_code=400)
+    task = None
+    if case_id:
+        case = get_case(case_id)
+        if not case:
+            return JSONResponse({"ok": False, "error": "Case not found."}, status_code=404)
+    if task_id:
+        if not case_id:
+            return JSONResponse({"ok": False, "error": "case_id is required when task_id is provided."}, status_code=400)
+        task = fetch_case_task(case_id, task_id)
+        if not task:
+            return JSONResponse({"ok": False, "error": "Task not found for this case."}, status_code=404)
+    user = current_user(request)
+    actor = str(user.get("username") or user.get("display_name") or "system")
+    try:
+        if case_id:
+            run = queue_case_playbook(case_id, playbook_key, actor, task=task)
+        else:
+            run_id = create_workflow_run(playbook_key, requested_by=actor, case_id=0, input_data={})
+            run = fetch_workflow_run(run_id) or {"id": run_id}
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=404)
+    return JSONResponse({"ok": True, "run": run}, status_code=201)
+
+
+@app.post("/api/cases/{case_id}/runs/{run_id}/status")
+async def api_case_run_status(request: Request, case_id: int, run_id: int):
+    if not authenticated(request):
+        return JSONResponse({"ok": False, "error": "Authentication required."}, status_code=401)
+    if not admin_authenticated(request):
+        return JSONResponse({"ok": False, "error": "Administrator access is required."}, status_code=403)
+    case = get_case(case_id)
+    if not case:
+        return JSONResponse({"ok": False, "error": "Case not found."}, status_code=404)
+    run = fetch_case_workflow_run(case_id, run_id)
+    if not run:
+        return JSONResponse({"ok": False, "error": "Workflow run not found for this case."}, status_code=404)
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON payload."}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"ok": False, "error": "Payload must be a JSON object."}, status_code=400)
+    try:
+        normalized_status = workflow_engine.normalize_run_status(str(payload.get("status") or ""))
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    user = current_user(request)
+    actor = str(user.get("username") or user.get("display_name") or "system")
+    try:
+        updated_run = transition_case_workflow_run_status(
+            case_id,
+            run_id,
+            normalized_status,
+            actor,
+            str(run.get("playbook_key") or ""),
+        )
+    except sqlite3.Error:
+        return JSONResponse({"ok": False, "error": "Unable to update the workflow run right now."}, status_code=500)
+    return JSONResponse({"ok": True, "run": updated_run})
+
+
+@app.post("/approvals/{approval_id}/decision", response_class=HTMLResponse)
+def approval_decision_route(
+    request: Request,
+    approval_id: int,
+    decision: str = Form(...),
+    note: str = Form(default=""),
+):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    if not admin_authenticated(request):
+        return render(request, active_page="approvals", error="Administrator access is required to resolve approvals.")
+    approval = fetch_approval(approval_id)
+    if not approval:
+        return render(request, active_page="approvals", error="Approval not found.")
+    user = current_user(request)
+    actor = str(user.get("username") or user.get("display_name") or "system")
+    try:
+        resolved = decide_task_approval(approval_id, decision, actor, note)
+    except Exception as exc:
+        return render(request, active_page="approvals", error=str(exc))
+    return render(request, active_page="approvals", message=f"Approval #{approval_id} marked {resolved['status']}.")
+
+
+@app.post("/cases/{case_id}/tasks/{task_id}/comments", response_class=HTMLResponse)
+def case_task_comment_route(request: Request, case_id: int, task_id: int, comment: str = Form(...)):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    if not get_case(case_id):
+        raise HTTPException(status_code=404, detail="Case not found")
+    task = fetch_case_task(case_id, task_id)
+    if not task:
+        return render(request, active_page="cases", selected_case_id=case_id, error="Task not found for this case.")
+    if not comment.strip():
+        return render(request, active_page="cases", selected_case_id=case_id, error="Comment text is required.")
+    user = current_user(request)
+    add_comment_to_task(task_id, user["username"], comment)
+    return render(request, active_page="cases", selected_case_id=case_id, message="Comment added.")
+
+
+@app.post("/cases/{case_id}/tasks/{task_id}/move", response_class=HTMLResponse)
+def case_task_move_route(request: Request, case_id: int, task_id: int, status: str = Form(...)):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    if not get_case(case_id):
+        raise HTTPException(status_code=404, detail="Case not found")
+    task = fetch_case_task(case_id, task_id)
+    if not task:
+        return render(request, active_page="cases", selected_case_id=case_id, error="Task not found for this case.")
+    target_status = normalize_portal_task_status(status)
+    ok, reason = validate_task_transition(task, target_status)
+    if not ok:
+        return render(request, active_page="cases", selected_case_id=case_id, error=reason)
+    user = current_user(request)
+    try:
+        if target_status == "in_progress":
+            move_portal_task_to_in_progress(task, user["username"])
+            return render(
+                request,
+                active_page="cases",
+                selected_case_id=case_id,
+                message="Task moved to In Progress and dispatched to Hermes Kanban.",
+            )
+        update_portal_task_status(task_id, target_status, user["username"])
+        return render(
+            request,
+            active_page="cases",
+            selected_case_id=case_id,
+            message=f"Task moved to {PORTAL_TASK_LABELS[target_status]}.",
+        )
+    except Exception as exc:
+        return render(request, active_page="cases", selected_case_id=case_id, error=str(exc))
+
+
+@app.post("/cases/{case_id}/runs/{run_id}/status", response_class=HTMLResponse)
+def case_run_status_route(request: Request, case_id: int, run_id: int, status: str = Form(...)):
+    guard = require_auth(request)
+    if guard:
+        return guard
+    if not admin_authenticated(request):
+        return render(request, active_page="cases", selected_case_id=case_id, error="Administrator access is required to update workflow runs.")
+    case = get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    run = fetch_case_workflow_run(case_id, run_id)
+    if not run:
+        return render(request, active_page="cases", selected_case_id=case_id, error="Workflow run not found for this case.")
+    try:
+        normalized_status = workflow_engine.normalize_run_status(status)
+    except ValueError as exc:
+        return render(request, active_page="cases", selected_case_id=case_id, error=str(exc))
+    user = current_user(request)
+    actor = str(user.get("username") or user.get("display_name") or "system")
+    status_label = normalized_status.replace("_", " ").title()
+    try:
+        transition_case_workflow_run_status(case_id, run_id, normalized_status, actor, str(run.get("playbook_key") or ""))
+    except sqlite3.Error:
+        return render(
+            request,
+            active_page="cases",
+            selected_case_id=case_id,
+            error="Unable to update the workflow run right now.",
+        )
+    return render(
+        request,
+        active_page="cases",
+        selected_case_id=case_id,
+        message=f"Workflow run moved to {status_label}.",
+    )
 
 
 @app.get("/chat", response_class=HTMLResponse)

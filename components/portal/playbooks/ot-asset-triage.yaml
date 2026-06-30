@@ -1,0 +1,12 @@
+key: ot-asset-triage
+title: OT asset triage
+scope: ot
+trigger: manual
+description: Triage OT-adjacent observables with site-aware context and operator approval holds.
+steps:
+  - id: identify_asset
+    action: identify-asset
+  - id: review_site_context
+    action: review-site-context
+  - id: require_operator_approval
+    action: require-approval

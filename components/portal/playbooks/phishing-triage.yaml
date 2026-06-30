@@ -1,0 +1,12 @@
+key: phishing-triage
+title: Phishing triage
+scope: it
+trigger: manual
+description: Investigate suspicious phishing messages, enrich observables, and recommend next analyst actions.
+steps:
+  - id: collect_headers
+    action: collect-email-headers
+  - id: enrich_observables
+    action: enrich-observables
+  - id: produce_recommendations
+    action: recommend-next-actions

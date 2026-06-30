@@ -1,0 +1,12 @@
+key: hash-enrichment
+title: Hash enrichment
+scope: it
+trigger: manual
+description: Enrich a file hash across internal and external sources and summarize confidence.
+steps:
+  - id: normalize_hash
+    action: normalize-hash
+  - id: query_enrichment_sources
+    action: enrich-hash
+  - id: summarize_findings
+    action: summarize-hash-findings
