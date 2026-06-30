@@ -221,15 +221,15 @@ NAV_ITEMS = [
 NAV_GROUPS = [
     {
         "label": "Command",
-        "items": ["dashboard", "tasks", "research", "chat", "soar"],
+        "items": ["dashboard", "tasks", "soar", "approvals"],
     },
     {
-        "label": "Response",
-        "items": ["cases", "playbooks", "approvals"],
+        "label": "Investigations",
+        "items": ["cases", "research", "playbooks", "documents"],
     },
     {
-        "label": "Delivery",
-        "items": ["documents", "works", "costs", "clients"],
+        "label": "Client Delivery",
+        "items": ["works", "clients", "costs", "chat"],
     },
     {
         "label": "Admin",
